@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""Log a passive PPSPi health summary without causing restart loops."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+
+
+def main() -> int:
+    try:
+        result = subprocess.run(
+            ["/usr/lib/ppstime/ppstime-status", "--json"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"PPSPi health warning: status collection failed: {exc}")
+        return 0
+    if result.returncode == 0:
+        payload = json.loads(result.stdout)
+        print(
+            "PPSPi health: "
+            f"chrony={payload['chrony']['state']} "
+            f"source={payload['chrony']['selected_source']} "
+            f"pps={payload['pps']['pulses']} gps_fix={payload['gps']['fix']}"
+        )
+    else:
+        print(f"PPSPi health warning: {result.stderr.strip() or 'status collection failed'}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

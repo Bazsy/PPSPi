@@ -1,0 +1,64 @@
+# Operating-system and editor files
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+
+# Build, image, and package output
+artifacts/
+build/
+dist/
+deploy/
+work/
+.cache/
+.pi-gen/
+pi-gen/checkout/
+pi-gen/work/
+pi-gen/deploy/
+*.img
+*.img.xz
+*.img.zst
+*.zip
+*.sha256
+build-info.json
+
+# Test and diagnostic output
+*.log
+*.tmp
+*.bak
+*.orig
+*.rej
+ppstime-diagnostics-*.tar.gz
+tests/output/
+
+# Local secrets and machine-specific overrides
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Environment-style project profiles are source files, not secrets.
+!config/default.env
+!config/profiles/*.env

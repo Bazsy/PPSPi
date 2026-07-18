@@ -1,0 +1,10 @@
+[Unit]
+Description=PPSPi save synchronized system time to hardware RTC
+After=chrony.service
+Wants=chrony.service
+ConditionPathExists=/etc/ppstime/ppstime.env
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/ppstime/ppstime-rtc save
+Nice=10

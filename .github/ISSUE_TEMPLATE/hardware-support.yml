@@ -1,0 +1,44 @@
+name: Hardware support proposal
+description: Propose a new board revision, HAT, Raspberry Pi model, or timing input.
+title: "[Hardware]: "
+labels:
+  - hardware
+  - blocked
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Hardware values are never guessed. Provide manufacturer documentation, schematics,
+        kernel/firmware source, or repeatable direct measurements.
+  - type: input
+    id: hardware
+    attributes:
+      label: Exact product and revision
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Authoritative evidence
+      description: Link datasheets/schematics and identify the UART, PPS pin/edge, RTC chip/address, and overlays.
+    validations:
+      required: true
+  - type: textarea
+    id: differences
+    attributes:
+      label: Differences from the current Pi 4/Uputronics profile
+    validations:
+      required: true
+  - type: textarea
+    id: test-plan
+    attributes:
+      label: Proposed hardware test plan
+    validations:
+      required: true
+  - type: checkboxes
+    id: access
+    attributes:
+      label: Hardware access
+      options:
+        - label: I or a named tester have the exact hardware for acceptance testing.
+          required: true

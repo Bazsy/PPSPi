@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""Restore or save the PPSPi hardware RTC with synchronization safeguards."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from pathlib import Path
+
+from ppstime_core import ConfigError, parse_env_file, parse_key_value_output, run_command, validate_config
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("restore", "save"))
+    parser.add_argument("--config", type=Path, default=Path("/etc/ppstime/ppstime.env"))
+    args = parser.parse_args()
+    try:
+        config = parse_env_file(args.config)
+        validate_config(config)
+    except ConfigError as exc:
+        print(f"ppstime RTC error: {exc}", file=sys.stderr)
+        return 2
+
+    if config["RTC_ENABLED"] != "true":
+        print("PPSPi RTC support is disabled")
+        return 0
+    device = Path(config["RTC_DEVICE"])
+    if args.action == "restore":
+        deadline = time.monotonic() + 10
+        while not device.exists() and time.monotonic() < deadline:
+            time.sleep(0.25)
+    if not device.exists():
+        print(f"PPSPi RTC device is unavailable: {device}", file=sys.stderr)
+        return 1 if args.action == "restore" else 0
+
+    if args.action == "save":
+        tracking = run_command(["chronyc", "tracking"])
+        fields = parse_key_value_output(tracking.stdout)
+        if tracking.returncode != 0 or fields.get("Leap status") != "Normal":
+            print("PPSPi RTC save skipped: Chrony is not synchronized", file=sys.stderr)
+            return 0
+
+    hwclock_action = "--hctosys" if args.action == "restore" else "--systohc"
+    result = run_command(["hwclock", hwclock_action, "--utc", "--rtc", str(device)], timeout=20)
+    if result.returncode != 0:
+        print(result.stderr.strip() or f"hwclock {args.action} failed", file=sys.stderr)
+        return 1
+    print(f"PPSPi RTC {args.action} completed using {device}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

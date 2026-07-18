@@ -1,0 +1,1 @@
+chrony gpsd gpsd-clients pps-tools i2c-tools jq python3

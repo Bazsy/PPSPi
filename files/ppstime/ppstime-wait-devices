@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""Wait a bounded time for configured GPS and PPS devices."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from pathlib import Path
+
+from ppstime_core import ConfigError, parse_env_file, validate_config
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, default=Path("/etc/ppstime/ppstime.env"))
+    parser.add_argument("--timeout", type=float, default=30.0)
+    args = parser.parse_args()
+    try:
+        config = parse_env_file(args.config)
+        validate_config(config)
+    except ConfigError as exc:
+        print(f"ppstime device wait: {exc}", file=sys.stderr)
+        return 2
+
+    required = [Path(config["GPS_DEVICE"]), Path(config["PPS_DEVICE"])]
+    deadline = time.monotonic() + max(0.0, args.timeout)
+    while time.monotonic() < deadline:
+        missing = [device for device in required if not device.exists()]
+        if not missing:
+            return 0
+        time.sleep(0.25)
+    print(
+        "ppstime device wait: timed out waiting for "
+        + ", ".join(str(device) for device in required if not device.exists()),
+        file=sys.stderr,
+    )
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
