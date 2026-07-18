@@ -8,12 +8,28 @@ publish a release.
 
 Maintainers should configure:
 
-1. branch protection on `main` requiring **Lint** and **Test**;
-2. pull requests and at least one approval;
-3. a GitHub environment named `release`;
-4. optional required reviewers on that environment;
-5. GitHub private vulnerability reporting;
-6. Actions permissions that allow the release workflow's `contents: write`.
+1. an active branch ruleset targeting `main`;
+2. pull requests before merging, with zero required approvals while this is a
+    single-maintainer repository;
+3. required status checks named **Static checks** and
+    **Required test gate**, with branches required to be up to date;
+4. required conversation resolution;
+5. branch deletion and force pushes blocked;
+6. a GitHub environment named `release` with a required reviewer when another
+    trusted maintainer is available;
+7. GitHub private vulnerability reporting;
+8. Actions permissions that allow the release workflow's `contents: write`.
+
+Do not require one pull-request approval until another maintainer can review:
+GitHub does not allow an author to approve their own pull request. Once a
+reviewer is available, require one approval, dismiss stale approvals, and
+require approval of the most recent reviewable push.
+
+The stable **Required test gate** depends on every Python and Raspberry Pi model
+matrix job. Protecting that one context avoids updating the ruleset whenever a
+matrix entry changes. Do not enable required signed commits until the project
+has a documented signing workflow. Leave linear history disabled while merge
+commits are allowed.
 
 The workflow uses the repository-scoped `GITHUB_TOKEN`. Do not add a personal
 access token secret for normal releases.

@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - main
-      - "feature/**"
 
 permissions:
   contents: read
@@ -69,3 +68,25 @@ jobs:
           else
             echo "Correctly rejected out-of-scope model: ${MODEL}"
           fi
+
+  required-test-gate:
+    name: Required test gate
+    if: ${{ always() }}
+    needs:
+      - unit-tests
+      - model-policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify required test jobs
+        env:
+          UNIT_TESTS_RESULT: ${{ needs.unit-tests.result }}
+          MODEL_POLICY_RESULT: ${{ needs.model-policy.result }}
+        run: |
+          if [[ "${UNIT_TESTS_RESULT}" != "success" \
+            || "${MODEL_POLICY_RESULT}" != "success" ]]; then
+            echo "Unit tests: ${UNIT_TESTS_RESULT}" >&2
+            echo "Model policy: ${MODEL_POLICY_RESULT}" >&2
+            exit 1
+          fi
+          echo "All required test jobs passed"
