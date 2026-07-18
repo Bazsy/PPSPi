@@ -1,0 +1,8 @@
+[Unit]
+Description=PPSPi passive timing health check
+After=chrony.service gpsd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/ppstime/ppstime-healthcheck
+Nice=10

@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SCRIPT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(SCRIPT_ROOT / "files" / "ppstime"))
+SOURCE_CORE = SCRIPT_ROOT / "files" / "ppstime"
+sys.path.insert(0, str(SOURCE_CORE if SOURCE_CORE.exists() else Path(__file__).resolve().parent))
 
 from ppstime_core import (  # noqa: E402
     ConfigError,

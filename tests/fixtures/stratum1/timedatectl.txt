@@ -1,0 +1,7 @@
+               Local time: Sat 2026-07-18 14:00:01 CEST
+           Universal time: Sat 2026-07-18 12:00:01 UTC
+                 RTC time: Sat 2026-07-18 12:00:00
+                Time zone: Europe/Stockholm (CEST, +0200)
+System clock synchronized: yes
+              NTP service: active
+          RTC in local TZ: no

@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically save synchronized PPSPi time to the hardware RTC
+
+[Timer]
+OnBootSec=20min
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+RandomizedDelaySec=5min
+Unit=ppstime-rtc-save.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""Show concise human-readable or stable JSON PPSPi timing status."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+from ppstime_core import (
+    CommandResult,
+    ConfigError,
+    parse_chrony_clients,
+    parse_chrony_sources,
+    parse_env_file,
+    parse_gpsd_json,
+    parse_key_value_output,
+    parse_ppstest,
+    run_command,
+    validate_config,
+)
+
+
+FIXTURE_FILES = {
+    "tracking": "chronyc-tracking.txt",
+    "sources": "chronyc-sources.txt",
+    "clients": "chronyc-clients.txt",
+    "gpspipe": "gpspipe.txt",
+    "ppstest": "ppstest.txt",
+    "hwclock": "hwclock.txt",
+    "chrony_service": "systemctl-chrony.txt",
+    "gpsd_service": "systemctl-gpsd.txt",
+}
+
+
+def fixture_or_command(
+    fixture_dir: Path | None,
+    fixture_key: str,
+    command: list[str],
+    *,
+    timeout: float = 10.0,
+) -> CommandResult:
+    if fixture_dir is None:
+        return run_command(command, timeout=timeout)
+    path = fixture_dir / FIXTURE_FILES[fixture_key]
+    try:
+        return CommandResult(0, path.read_text(encoding="utf-8"), "")
+    except OSError as exc:
+        return CommandResult(1, "", str(exc))
+
+
+def first_number(value: str | None) -> str | None:
+    if not value:
+        return None
+    match = re.search(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", value)
+    return match.group(0) if match else None
+
+
+def collect_status(config_path: Path, fixture_dir: Path | None = None) -> dict[str, Any]:
+    config = parse_env_file(config_path)
+    validate_config(config)
+
+    tracking_result = fixture_or_command(fixture_dir, "tracking", ["chronyc", "tracking"])
+    source_result = fixture_or_command(
+        fixture_dir, "sources", ["chronyc", "-n", "sources", "-v"]
+    )
+    client_result = fixture_or_command(fixture_dir, "clients", ["chronyc", "-n", "clients"])
+    gps_result = fixture_or_command(
+        fixture_dir, "gpspipe", ["gpspipe", "-w", "-n", "10"], timeout=8
+    )
+    pps_result = fixture_or_command(
+        fixture_dir, "ppstest", ["ppstest", config["PPS_DEVICE"]], timeout=3
+    )
+    rtc_result = fixture_or_command(
+        fixture_dir,
+        "hwclock",
+        ["hwclock", "--show", "--utc", "--rtc", config["RTC_DEVICE"]],
+        timeout=5,
+    )
+    chrony_service = fixture_or_command(
+        fixture_dir, "chrony_service", ["systemctl", "is-active", "chrony.service"]
+    )
+    gpsd_service = fixture_or_command(
+        fixture_dir, "gpsd_service", ["systemctl", "is-active", "gpsd.service"]
+    )
+
+    tracking = parse_key_value_output(tracking_result.stdout)
+    sources = parse_chrony_sources(source_result.stdout)
+    selected = next((source["name"] for source in sources if source["state"] == "*"), None)
+    gps = parse_gpsd_json(gps_result.stdout)
+    fixture_mode = fixture_dir is not None
+    fixture_devices: dict[str, bool] = {}
+    if fixture_dir is not None:
+        device_state_path = fixture_dir / "device-state.json"
+        try:
+            fixture_devices = json.loads(device_state_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            fixture_devices = {}
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ConfigError(f"invalid device-state fixture: {exc}") from exc
+
+    chrony_synchronized = (
+        tracking_result.returncode == 0
+        and tracking.get("Leap status") == "Normal"
+        and chrony_service.stdout.strip() == "active"
+    )
+    serial_exists = (
+        Path(config["GPS_DEVICE"]).exists()
+        if not fixture_mode
+        else fixture_devices.get("gps_device", gps_result.returncode == 0)
+    )
+    pps_exists = (
+        Path(config["PPS_DEVICE"]).exists()
+        if not fixture_mode
+        else fixture_devices.get("pps_device", pps_result.returncode == 0)
+    )
+    rtc_exists = (
+        Path(config["RTC_DEVICE"]).exists()
+        if not fixture_mode
+        else fixture_devices.get("rtc_device", rtc_result.returncode == 0)
+    )
+
+    return {
+        "schema_version": 1,
+        "profile": config["PPSTIME_PROFILE"],
+        "gps": {
+            "device": config["GPS_DEVICE"],
+            "serial": "OK" if serial_exists else "MISSING",
+            "service": "ACTIVE" if gpsd_service.stdout.strip() == "active" else "INACTIVE",
+            "fix": gps["fix"],
+            "satellites_used": gps["satellites_used"],
+        },
+        "pps": {
+            "device": config["PPS_DEVICE"],
+            "exists": pps_exists,
+            "pulses": "ACTIVE" if parse_ppstest(pps_result.stdout) else "INACTIVE",
+        },
+        "rtc": {
+            "device": config["RTC_DEVICE"],
+            "status": "OK" if rtc_exists and rtc_result.returncode == 0 else "UNAVAILABLE",
+            "time": rtc_result.stdout.strip() or None,
+        },
+        "chrony": {
+            "state": "SYNCHRONIZED" if chrony_synchronized else "NOT SYNCHRONIZED",
+            "selected_source": selected,
+            "stratum": int(tracking["Stratum"]) if tracking.get("Stratum", "").isdigit() else None,
+            "system_offset_seconds": first_number(
+                tracking.get("System time") or tracking.get("Last offset")
+            ),
+            "root_dispersion_seconds": first_number(tracking.get("Root dispersion")),
+        },
+        "ntp_clients": parse_chrony_clients(client_result.stdout)
+        if client_result.returncode == 0
+        else None,
+    }
+
+
+def render_human(status: dict[str, Any]) -> str:
+    rows = [
+        ("Profile", status["profile"]),
+        ("GPS device", status["gps"]["device"]),
+        ("GPS serial", status["gps"]["serial"]),
+        ("GPSD service", status["gps"]["service"]),
+        ("GPS fix", status["gps"]["fix"]),
+        ("Satellites used", status["gps"]["satellites_used"]),
+        ("PPS device", status["pps"]["device"]),
+        ("PPS pulses", status["pps"]["pulses"]),
+        ("RTC device", status["rtc"]["device"]),
+        ("RTC status", status["rtc"]["status"]),
+        ("Chrony state", status["chrony"]["state"]),
+        ("Selected source", status["chrony"]["selected_source"] or "NONE"),
+        ("Stratum", status["chrony"]["stratum"] if status["chrony"]["stratum"] else "N/A"),
+        ("System offset", status["chrony"]["system_offset_seconds"] or "N/A"),
+        ("Root dispersion", status["chrony"]["root_dispersion_seconds"] or "N/A"),
+        ("NTP clients", status["ntp_clients"] if status["ntp_clients"] is not None else "N/A"),
+    ]
+    lines = ["PPSPi status", "------------", ""]
+    lines.extend(f"{label + ':':<20} {value}" for label, value in rows)
+    return "\n".join(lines)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--json", action="store_true", help="emit stable machine-readable JSON")
+    parser.add_argument("--config", type=Path, default=Path("/etc/ppstime/ppstime.env"))
+    parser.add_argument("--fixture-dir", type=Path, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    try:
+        status = collect_status(args.config, args.fixture_dir)
+    except ConfigError as exc:
+        print(f"ppstime-status: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(status, indent=2, sort_keys=True))
+    else:
+        print(render_human(status))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import re
 import shlex
@@ -51,6 +52,12 @@ BOOLEAN_KEYS = frozenset({"GPSD_ENABLED", "RTC_ENABLED", "CHRONY_ENABLED", "SSH_
 DEVICE_KEYS = frozenset({"GPS_DEVICE", "PPS_DEVICE", "RTC_DEVICE"})
 SAFE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
 PROFILE_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+PRIVATE_LAN_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("fc00::/7"),
+)
 HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*"
     r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$"
@@ -147,6 +154,9 @@ def validate_config(config: Mapping[str, str]) -> None:
     unknown = sorted(config.keys() - CONFIG_KEYS)
     if unknown:
         raise ConfigError(f"unsupported configuration keys: {', '.join(unknown)}")
+    for key, value in config.items():
+        if any(character in value for character in ("\x00", "\n", "\r")):
+            raise ConfigError(f"{key} contains a forbidden control character")
 
     if not PROFILE_RE.fullmatch(config["PPSTIME_PROFILE"]):
         raise ConfigError("PPSTIME_PROFILE must use lowercase letters, digits, and hyphens")
@@ -155,7 +165,13 @@ def validate_config(config: Mapping[str, str]) -> None:
             raise ConfigError(f"{key} must be true or false")
     for key in DEVICE_KEYS:
         value = config[key]
-        if not value.startswith("/dev/") or not re.fullmatch(r"/dev/[A-Za-z0-9._/+:-]+", value):
+        path = Path(value)
+        if (
+            not value.startswith("/dev/")
+            or not re.fullmatch(r"/dev/[A-Za-z0-9._/+:-]+", value)
+            or ".." in path.parts
+            or "//" in value
+        ):
             raise ConfigError(f"{key} must be a safe absolute path below /dev")
 
     try:
@@ -175,6 +191,8 @@ def validate_config(config: Mapping[str, str]) -> None:
         raise ConfigError("PPS_ASSERT_EDGE must be rising or falling")
     if not SAFE_NAME_RE.fullmatch(config["RTC_OVERLAY"]):
         raise ConfigError("RTC_OVERLAY contains unsafe characters")
+    if config["GPSD_OPTIONS"] != "-n":
+        raise ConfigError("GPSD_OPTIONS must be -n for reliable unattended time service")
 
     cidrs = split_cidrs(config["NTP_ALLOW"])
     if not cidrs:
@@ -184,7 +202,10 @@ def validate_config(config: Mapping[str, str]) -> None:
             network = ipaddress.ip_network(cidr, strict=True)
         except ValueError as exc:
             raise ConfigError(f"NTP_ALLOW contains invalid CIDR {cidr!r}: {exc}") from exc
-        if not network.is_private:
+        if not any(
+            network.version == private_network.version and network.subnet_of(private_network)
+            for private_network in PRIVATE_LAN_NETWORKS
+        ):
             raise ConfigError(f"NTP_ALLOW must not expose NTP publicly: {cidr!r}")
 
     pool = config["NTP_FALLBACK_POOL"]
@@ -194,7 +215,7 @@ def validate_config(config: Mapping[str, str]) -> None:
         offset = float(config["CHRONY_GPS_OFFSET"])
     except ValueError as exc:
         raise ConfigError("CHRONY_GPS_OFFSET must be numeric") from exc
-    if not -1.0 <= offset <= 1.0:
+    if not math.isfinite(offset) or not -1.0 <= offset <= 1.0:
         raise ConfigError("CHRONY_GPS_OFFSET must be between -1.0 and 1.0 seconds")
     if not HOSTNAME_RE.fullmatch(config["DEFAULT_HOSTNAME"]):
         raise ConfigError("DEFAULT_HOSTNAME must be a valid hostname")
@@ -475,7 +496,9 @@ def parse_gpsd_json(text: str) -> dict[str, Any]:
 def parse_ppstest(text: str) -> bool:
     """Detect at least two distinct PPS assert sequence numbers."""
 
-    sequences = set(re.findall(r"assert [^#\n]*#(\d+)", text))
+    sequences = set(
+        re.findall(r"assert [^\n]*?(?:sequence:\s*|#)(\d+)", text, flags=re.IGNORECASE)
+    )
     return len(sequences) >= 2
 
 

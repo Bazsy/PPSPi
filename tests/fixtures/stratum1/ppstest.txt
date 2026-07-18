@@ -1,0 +1,4 @@
+trying PPS source "/dev/pps0"
+found PPS source "/dev/pps0"
+source 0 - assert 1784376000.000000123, sequence: 1001 - clear 0.000000000, sequence: 0
+source 0 - assert 1784376001.000000087, sequence: 1002 - clear 0.000000000, sequence: 0

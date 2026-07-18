@@ -1,0 +1,2 @@
+Status:         3D FIX (1 secs)
+Satellites:     4 used, 5 visible

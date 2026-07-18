@@ -1,0 +1,2 @@
+# PPSPi: allow timing services and diagnostic users in dialout to read PPS.
+SUBSYSTEM=="pps", KERNEL=="pps[0-9]*", GROUP="dialout", MODE="0660", TAG+="systemd"

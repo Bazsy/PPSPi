@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""Run installation and live timing validation for PPSPi."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import socket
+import subprocess
+import sys
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+from ppstime_core import ConfigError, parse_env_file, run_command, validate_config
+
+
+@dataclass(frozen=True)
+class Check:
+    name: str
+    status: str
+    message: str
+    essential: bool = True
+
+
+def port_123_listening() -> bool:
+    result = run_command(["ss", "-H", "-l", "-u", "-n"], timeout=5)
+    return result.returncode == 0 and any(
+        line.split()[4].endswith(":123") for line in result.stdout.splitlines() if len(line.split()) >= 5
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--config", type=Path, default=Path("/etc/ppstime/ppstime.env"))
+    parser.add_argument("--fixture-dir", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--boot-config", type=Path)
+    args = parser.parse_args()
+    try:
+        config = parse_env_file(args.config)
+        validate_config(config)
+    except ConfigError as exc:
+        print(f"ppstime-test: {exc}", file=sys.stderr)
+        return 2
+
+    status_command = [
+        sys.executable,
+        str(Path(__file__).with_name("ppstime-status")),
+        "--json",
+        "--config",
+        str(args.config),
+    ]
+    if args.fixture_dir:
+        status_command.extend(["--fixture-dir", str(args.fixture_dir)])
+    try:
+        status_process = subprocess.run(
+            status_command, capture_output=True, check=False, text=True, timeout=30
+        )
+        status = json.loads(status_process.stdout) if status_process.returncode == 0 else {}
+    except (subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+        print(f"ppstime-test: cannot collect status: {exc}", file=sys.stderr)
+        return 2
+
+    checks: list[Check] = []
+    fixture_mode = args.fixture_dir is not None
+    packages = ("chronyc", "gpspipe", "ppstest", "hwclock", "jq", "python3")
+    missing_packages = [command for command in packages if shutil.which(command) is None]
+    checks.append(
+        Check(
+            "required_packages",
+            "PASS" if fixture_mode or not missing_packages else "FAIL",
+            "available" if fixture_mode or not missing_packages else f"missing: {', '.join(missing_packages)}",
+        )
+    )
+
+    boot_path = args.boot_config
+    if boot_path is None:
+        boot_path = next(
+            (path for path in (Path("/boot/firmware/config.txt"), Path("/boot/config.txt")) if path.exists()),
+            None,
+        )
+    boot_text = boot_path.read_text(encoding="utf-8") if boot_path and boot_path.exists() else ""
+    required_boot_lines = (
+        "enable_uart=1",
+        f"dtoverlay=pps-gpio,gpiopin={config['PPS_GPIO']}",
+        f"dtoverlay=i2c-rtc,{config['RTC_OVERLAY']}",
+    )
+    boot_ok = all(line in boot_text for line in required_boot_lines)
+    checks.append(Check("boot_configuration", "PASS" if boot_ok else "FAIL", str(boot_path or "not found")))
+
+    checks.extend(
+        [
+            Check("serial_device", "PASS" if status.get("gps", {}).get("serial") == "OK" else "FAIL", config["GPS_DEVICE"]),
+            Check("gpsd_service", "PASS" if status.get("gps", {}).get("service") == "ACTIVE" else "FAIL", status.get("gps", {}).get("service", "unknown")),
+            Check("gps_message_flow", "PASS" if status.get("gps", {}).get("fix") != "UNKNOWN" else "FAIL", status.get("gps", {}).get("fix", "unknown")),
+            Check("gps_fix", "PASS" if status.get("gps", {}).get("fix") in {"2D", "3D"} else "WARN", status.get("gps", {}).get("fix", "unknown"), essential=False),
+            Check("pps_device", "PASS" if status.get("pps", {}).get("exists") else "FAIL", config["PPS_DEVICE"]),
+            Check("pps_pulses", "PASS" if status.get("pps", {}).get("pulses") == "ACTIVE" else "FAIL", status.get("pps", {}).get("pulses", "unknown")),
+            Check("rtc", "PASS" if status.get("rtc", {}).get("status") == "OK" else "FAIL", status.get("rtc", {}).get("status", "unknown")),
+            Check("chrony_synchronized", "PASS" if status.get("chrony", {}).get("state") == "SYNCHRONIZED" else "FAIL", status.get("chrony", {}).get("state", "unknown")),
+            Check("chrony_selected_source", "PASS" if status.get("chrony", {}).get("selected_source") == "PPS" else "FAIL", status.get("chrony", {}).get("selected_source") or "none"),
+        ]
+    )
+
+    if fixture_mode:
+        chrony_config_ok = True
+        listening = True
+        query_ok = True
+        units_ok = True
+    else:
+        config_check = run_command(["chronyd", "-p", "-f", "/etc/chrony/chrony.conf"], timeout=10)
+        chrony_config_ok = config_check.returncode == 0
+        listening = port_123_listening()
+        query = run_command(
+            ["chronyd", "-Q", "-t", "3", "server 127.0.0.1 iburst maxsamples 1"], timeout=8
+        )
+        query_ok = query.returncode == 0
+        failed_units = run_command(
+            ["systemctl", "is-failed", "chrony.service", "gpsd.service", "ppstime-rtc-restore.service"]
+        )
+        units_ok = "failed" not in failed_units.stdout.split()
+    checks.extend(
+        [
+            Check("chrony_configuration", "PASS" if chrony_config_ok else "FAIL", "syntax valid" if chrony_config_ok else "syntax check failed"),
+            Check("ntp_socket", "PASS" if listening else "FAIL", "UDP/123 listening" if listening else "UDP/123 not listening"),
+            Check("local_ntp_query", "PASS" if query_ok else "FAIL", socket.gethostname()),
+            Check("systemd_units", "PASS" if units_ok else "FAIL", "healthy" if units_ok else "one or more units failed"),
+        ]
+    )
+
+    failed = [check for check in checks if check.essential and check.status == "FAIL"]
+    if args.json:
+        print(json.dumps({"checks": [asdict(check) for check in checks], "ok": not failed}, indent=2))
+    else:
+        for check in checks:
+            print(f"[{check.status:<4}] {check.name:<24} {check.message}")
+        print(f"\nEssential checks: {'PASS' if not failed else 'FAIL'}")
+    return 0 if not failed else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

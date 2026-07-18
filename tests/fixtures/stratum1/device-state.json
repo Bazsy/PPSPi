@@ -1,0 +1,5 @@
+{
+  "gps_device": true,
+  "pps_device": true,
+  "rtc_device": true
+}

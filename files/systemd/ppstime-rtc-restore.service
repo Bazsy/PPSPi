@@ -1,0 +1,14 @@
+[Unit]
+Description=PPSPi restore system clock from hardware RTC
+DefaultDependencies=no
+After=systemd-modules-load.service
+Before=time-set.target chrony.service
+ConditionPathExists=/etc/ppstime/ppstime.env
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/ppstime/ppstime-rtc restore
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
