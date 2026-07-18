@@ -13,6 +13,11 @@ project without vendoring or patching it. `PI_GEN_COMMIT` pins the
 5. invokes pi-gen's supported Docker build entry point;
 6. passes the image to `scripts/package-release.sh`.
 
+Stage 2 is built as PPSPi's Raspberry Pi OS Lite base, but its intermediate
+image export is suppressed with `SKIP_IMAGES`. Only `stage-pps-pi` exports an
+image. Packaging additionally selects the exact configured `IMG_NAME`, so stale
+or unexpected pi-gen images cannot be attached to a release.
+
 The custom stage installs its package list through pi-gen and then runs the same
 `scripts/install.sh` used for a live Raspberry Pi OS installation. This prevents
 the image path and installer path from becoming unrelated implementations.
