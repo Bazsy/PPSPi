@@ -40,7 +40,7 @@ make test
 The suite covers:
 
 - strict profile parsing and invalid values;
-- explicit RFC1918/ULA network restrictions;
+- all RFC 1918/ULA defaults and explicit exclusion of other non-global ranges;
 - Pi 4 acceptance and out-of-scope model rejection;
 - duplicate-safe boot blocks and serial-console removal;
 - generated GPSD and Chrony configuration;

@@ -17,6 +17,11 @@ All notable changes are documented here. PPSPi follows
 - separate lint, test, manual image, and explicitly published release workflows;
 - user, developer, hardware, troubleshooting, and release documentation.
 
+### Changed
+
+- expanded the default NTP client allow-list to all RFC 1918 IPv4 ranges and
+  RFC 4193 IPv6 ULA while keeping other address classes rejected.
+
 ### Security
 
 - no embedded account password, SSH key, or wireless credential;

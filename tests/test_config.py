@@ -28,6 +28,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(self.config["GPS_DEVICE"], "/dev/serial0")
         self.assertEqual(self.config["PPS_ASSERT_EDGE"], "rising")
 
+    def test_default_ntp_access_covers_standard_private_lan_ranges(self) -> None:
+        self.assertEqual(
+            self.config["NTP_ALLOW"],
+            "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7",
+        )
+
     def test_environment_override_is_validated(self) -> None:
         config = load_config(PROJECT_ROOT, environ={"NTP_ALLOW": "10.42.0.0/16"})
         self.assertEqual(config["NTP_ALLOW"], "10.42.0.0/16")
@@ -43,8 +49,21 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["PPSTIME_PROFILE"], "uputronics-gps-rtc-hat")
         self.assertEqual(config["NTP_ALLOW"], "10.50.0.0/16")
 
-    def test_rejects_public_or_invalid_cidr(self) -> None:
-        for value in ("0.0.0.0/0", "8.8.8.0/24", "192.168.1.1/24", "not-a-cidr"):
+    def test_rejects_non_lan_or_invalid_cidr(self) -> None:
+        for value in (
+            "0.0.0.0/0",
+            "8.8.8.0/24",
+            "127.0.0.0/8",
+            "169.254.0.0/16",
+            "100.64.0.0/10",
+            "224.0.0.0/4",
+            "::1/128",
+            "fe80::/10",
+            "ff00::/8",
+            "2001:db8::/32",
+            "192.168.1.1/24",
+            "not-a-cidr",
+        ):
             with self.subTest(value=value):
                 invalid = dict(self.config, NTP_ALLOW=value)
                 with self.assertRaises(ConfigError):

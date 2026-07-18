@@ -21,8 +21,13 @@ class RenderingTests(unittest.TestCase):
         self.assertIn("refclock PPS /dev/pps0 refid PPS lock GPS", rendered)
         self.assertIn("prefer precision 1e-7", rendered)
         self.assertIn("pool pool.ntp.org iburst maxsources 4", rendered)
+        self.assertIn("allow 10.0.0.0/8", rendered)
+        self.assertIn("allow 172.16.0.0/12", rendered)
         self.assertIn("allow 192.168.0.0/16", rendered)
+        self.assertIn("allow fc00::/7", rendered)
+        self.assertEqual(rendered.count("\nallow "), 4)
         self.assertNotIn("allow 0/0", rendered)
+        self.assertNotIn("allow fe80::/10", rendered)
 
     def test_falling_edge_uses_chrony_and_overlay_options(self) -> None:
         config = dict(self.config, PPS_ASSERT_EDGE="falling")

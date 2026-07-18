@@ -52,6 +52,10 @@ BOOLEAN_KEYS = frozenset({"GPSD_ENABLED", "RTC_ENABLED", "CHRONY_ENABLED", "SSH_
 DEVICE_KEYS = frozenset({"GPS_DEVICE", "PPS_DEVICE", "RTC_DEVICE"})
 SAFE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
 PROFILE_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+# NTP client networks accepted by configuration validation. This intentionally
+# means administratively private LAN address space, not every range that Python
+# classifies as non-global (for example, loopback, link-local, CGNAT, or test
+# networks).
 PRIVATE_LAN_NETWORKS = (
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
@@ -280,7 +284,7 @@ def render_chrony(config: Mapping[str, str]) -> str:
             "# Network time accelerates startup and remains available when GNSS is lost.",
             f"pool {config['NTP_FALLBACK_POOL']} iburst maxsources 4",
             "",
-            "# Serve only explicitly configured private networks.",
+            "# Serve only validated RFC 1918 IPv4 and RFC 4193 IPv6 ULA networks.",
         ]
     )
     lines.extend(f"allow {cidr}" for cidr in split_cidrs(config["NTP_ALLOW"]))

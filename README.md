@@ -87,7 +87,17 @@ sudo reboot
 ```
 
 The installer is idempotent, validates the Pi model and profile, preserves
-unrelated boot settings, and backs up changed boot files. To narrow LAN access:
+unrelated boot settings, and backs up changed boot files. By default, Chrony
+serves every standard private LAN range:
+
+- `10.0.0.0/8`;
+- `172.16.0.0/12`;
+- `192.168.0.0/16`;
+- `fc00::/7` (IPv6 Unique Local Addresses).
+
+This includes `192.168.1.0/24`. Public, loopback, link-local, CGNAT, multicast,
+and documentation/test ranges are not accepted. You can optionally narrow
+access to the subnet or subnets actually routed to the Pi:
 
 ```console
 sudo ppstime-config set NTP_ALLOW 192.168.1.0/24
@@ -185,7 +195,8 @@ See the [release process](docs/release-process.md) for the exact gates.
 - no default password or project SSH key;
 - SSH disabled until the owner enables it through Imager;
 - no web or administrative API;
-- NTP allowed only from validated RFC1918 or IPv6 ULA CIDRs;
+- NTP allowed by default from all RFC 1918 IPv4 and RFC 4193 IPv6 ULA ranges;
+- public, loopback, link-local, CGNAT, multicast, and test ranges rejected;
 - generated configuration uses least-privilege file modes;
 - diagnostics are scoped and sanitised;
 - standard Raspberry Pi OS package signing and updates remain intact.
@@ -198,7 +209,8 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - Older Uputronics board revisions may use a different RTC and are not assumed
   compatible without identification.
 - Only Raspberry Pi 4 Model B is accepted by the initial profile.
-- The default `192.168.0.0/16` NTP allow-list should be narrowed for your LAN.
+- The broad private-LAN default can be narrowed when the routed client subnets
+  are known.
 - GPS serial latency correction defaults to zero and requires measurement before
   tuning; GPS is therefore marked `noselect` and used to label PPS.
 - Generic UART/PPS hardware and other Raspberry Pi models are deferred.

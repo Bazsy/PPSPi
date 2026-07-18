@@ -25,9 +25,14 @@ The image contains no default password, project SSH key, or wireless credential.
 SSH is disabled. Initial account creation and optional key injection use
 Raspberry Pi Imager. NTP access is limited to validated private CIDRs.
 
-## Required operator action
+## Default LAN access
 
-Narrow the default NTP allow-list after first boot:
+Chrony serves all standard private LAN ranges by default: `10.0.0.0/8`,
+`172.16.0.0/12`, `192.168.0.0/16`, and IPv6 ULA `fc00::/7`. This covers common
+subnets such as `192.168.1.0/24` while continuing to reject public, loopback,
+link-local, CGNAT, multicast, and test ranges.
+
+Operators can optionally narrow the allow-list after first boot:
 
 ```console
 sudo ppstime-config set NTP_ALLOW 192.168.1.0/24

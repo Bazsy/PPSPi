@@ -9,7 +9,10 @@ shape is:
 refclock SOCK /run/chrony.serial0.sock refid GPS ... noselect
 refclock PPS /dev/pps0 refid PPS lock GPS poll 0 dpoll 0 prefer ...
 pool pool.ntp.org iburst maxsources 4
+allow 10.0.0.0/8
+allow 172.16.0.0/12
 allow 192.168.0.0/16
+allow fc00::/7
 ```
 
 The complete file is rendered from validated values and includes comments. Do
@@ -70,9 +73,28 @@ Validation accepts only subnets inside:
 - `192.168.0.0/16`;
 - `fc00::/7`.
 
-Public ranges and default routes such as `0.0.0.0/0` are rejected. The default
-`192.168.0.0/16` is intentionally generic and should be narrowed. Chrony opens
-UDP port 123 only because an `allow` directive exists; command monitoring
+The default includes all four ranges, so common LANs such as
+`192.168.1.0/24`, `10.20.0.0/16`, and `172.20.0.0/16` work without changing the
+image. IPv6 ULA clients are also included.
+
+The following address classes are deliberately not accepted as LAN policy:
+
+- public and default routes such as `0.0.0.0/0` and `::/0`;
+- IPv4 and IPv6 loopback;
+- IPv4 APIPA and IPv6 link-local;
+- `100.64.0.0/10` carrier-grade NAT space;
+- multicast;
+- documentation and benchmark networks.
+
+These ranges are non-global for different reasons, but they are not
+administrator-assigned private LAN space. Localhost can query Chrony without an
+`allow` directive, and IPv6 link-local addresses also require interface scope,
+making them a poor default client policy.
+
+The four-range default is convenient but intentionally broad. Operators with
+routing, VPNs, or several private network zones can optionally narrow
+`NTP_ALLOW` to the client subnets that should receive time. Chrony opens UDP
+port 123 because at least one `allow` directive exists; command monitoring
 remains local.
 
 Response rate limiting uses an interval of two seconds with a bounded burst of

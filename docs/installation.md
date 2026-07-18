@@ -67,8 +67,10 @@ sudo ./scripts/install.sh --config /path/to/site.env
 ```
 
 A custom file uses one `KEY=VALUE` per line. Unknown keys, duplicates, shell
-syntax, control characters, unsafe device paths, public CIDRs, and invalid
-values are rejected. Example:
+syntax, control characters, unsafe device paths, non-LAN CIDRs, and invalid
+values are rejected. The shipped default already permits all RFC 1918 IPv4
+space and IPv6 ULA. This example intentionally narrows access for a segmented
+site:
 
 ```ini
 NTP_ALLOW=192.168.50.0/24
@@ -120,7 +122,8 @@ Expected devices are `/dev/serial0`, `/dev/pps0`, and `/dev/rtc0`. An outdoor
 antenna may need several minutes for a cold fix. `ppstime-test` intentionally
 returns non-zero while essential timing components are unavailable.
 
-Narrow NTP access to the actual LAN:
+Optionally narrow NTP access to the actual LAN when the broader private-range
+default is not desired:
 
 ```console
 sudo ppstime-config set NTP_ALLOW 192.168.50.0/24
