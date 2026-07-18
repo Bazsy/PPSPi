@@ -83,6 +83,9 @@ git -C "${checkout_dir}" clean -ffdqx
     die "pi-gen checkout does not match the pinned commit"
 
 cp -a "${SOURCE_ROOT}/pi-gen/stage-pps-pi" "${checkout_dir}/stage-pps-pi"
+# Stage 2 is still built as the base for PPSPi, but its EXPORT_IMAGE would
+# create an intermediate *-lite image in addition to the final PPSPi image.
+touch "${checkout_dir}/stage2/SKIP_IMAGES"
 payload_dir="${checkout_dir}/stage-pps-pi/01-install/files"
 mkdir -p "${payload_dir}"
 tar \
@@ -103,8 +106,9 @@ python3 "${SCRIPT_DIR}/build-info.py" \
     --build-date-utc "${build_date_utc}" \
     --pi-gen-commit "${PI_GEN_COMMIT}"
 
+image_name="ppspi-${version}-raspios-bookworm-arm64"
 cat > "${checkout_dir}/config-ppspi" << EOF
-IMG_NAME='ppspi-${version}-raspios-bookworm-arm64'
+IMG_NAME='${image_name}'
 PI_GEN_RELEASE='PPSPi ${version}'
 RELEASE='bookworm'
 ARCH='arm64'
@@ -129,13 +133,18 @@ docker info > /dev/null 2>&1 || die "Docker daemon is unavailable or access is d
 
 (
     cd "${checkout_dir}"
-    PRESERVE_CONTAINER=0 CONTINUE=0 ./build-docker.sh config-ppspi
+    PRESERVE_CONTAINER=0 CONTINUE=0 ./build-docker.sh -c config-ppspi
 )
 
-mapfile -t images < <(find "${checkout_dir}/deploy" -maxdepth 1 -type f -name '*.img.xz' -print)
-(("${#images[@]}" == 1)) || die "expected exactly one .img.xz in pi-gen deploy output"
+if ! image_path="$(
+    python3 "${SCRIPT_DIR}/select-image.py" \
+        --deploy-dir "${checkout_dir}/deploy" \
+        --image-name "${image_name}"
+)"; then
+    die "could not select the final pi-gen image"
+fi
 "${SCRIPT_DIR}/package-release.sh" \
-    --image "${images[0]}" \
+    --image "${image_path}" \
     --build-info "${payload_dir}/build-info.json" \
     --version "${version}" \
     --output-dir "${output_dir}"

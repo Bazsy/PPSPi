@@ -25,6 +25,17 @@ All notable changes are documented here. PPSPi follows
   baud default, fixed GPSD to that configured speed, and exposed baud in status
   output; older Uputronics boards remain documented as 9600-baud hardware.
 
+### Fixed
+
+- pass the generated pi-gen configuration through `build-docker.sh -c`; the
+  previous positional argument left the configuration path empty and failed at
+  `realpath` before Docker image construction began.
+- install pi-gen's required QEMU user emulation and binfmt support explicitly on
+  the ephemeral GitHub-hosted image-build runner.
+- suppress the intermediate Stage 2 `-lite` image and select the final pi-gen
+  output by its exact PPSPi image name instead of rejecting all multi-image
+  deploy directories.
+
 ### Security
 
 - no embedded account password, SSH key, or wireless credential;
