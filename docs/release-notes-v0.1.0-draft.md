@@ -9,8 +9,8 @@ Bookworm.
 
 ## Highlights
 
-- current Uputronics GPS/RTC profile with source-verified GPIO 18 PPS and
-  RV-3028-C7 RTC configuration;
+- Uputronics V6.0+ GPS/RTC profile with manufacturer-verified 115200 baud,
+  GPIO 18 PPS, and RV-3028-C7 RTC configuration;
 - strict, idempotent installer for a clean Raspberry Pi OS Lite system;
 - GPSD serial time and direct kernel PPS integration with Chrony;
 - private-LAN NTP serving with network startup/fallback sources;

@@ -26,6 +26,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(self.config["PPS_GPIO"], "18")
         self.assertEqual(self.config["RTC_OVERLAY"], "rv3028")
         self.assertEqual(self.config["GPS_DEVICE"], "/dev/serial0")
+        self.assertEqual(self.config["GPS_BAUD"], "115200")
         self.assertEqual(self.config["PPS_ASSERT_EDGE"], "rising")
 
     def test_default_ntp_access_covers_standard_private_lan_ranges(self) -> None:
@@ -75,6 +76,11 @@ class ConfigTests(unittest.TestCase):
                 self.assertFalse(math.isfinite(float(value)))
                 with self.assertRaises(ConfigError):
                     validate_config(dict(self.config, CHRONY_GPS_OFFSET=value))
+
+    def test_rejects_baud_rates_not_supported_by_gpsd(self) -> None:
+        for value in ("1200", "14400", "115201", "921600"):
+            with self.subTest(value=value), self.assertRaises(ConfigError):
+                validate_config(dict(self.config, GPS_BAUD=value))
 
     def test_rejects_device_path_traversal(self) -> None:
         with self.assertRaises(ConfigError):

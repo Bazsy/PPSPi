@@ -46,6 +46,7 @@ Confirm `/dev/serial0` exists and resolves to the expected header UART.
 ### 5. GPSD receives valid data
 
 Capture bounded `gpspipe` or `gpsmon` evidence showing recognized NMEA/UBX data.
+Confirm GPSD reports 115200 bps for a V6.0+ Uputronics board.
 
 ### 6. PPS device exists
 

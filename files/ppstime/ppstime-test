@@ -112,6 +112,14 @@ def main() -> int:
     checks.extend(
         [
             Check("serial_device", "PASS" if status.get("gps", {}).get("serial") == "OK" else "FAIL", config["GPS_DEVICE"]),
+            Check(
+                "gps_baud",
+                "PASS"
+                if status.get("gps", {}).get("reported_baud") == int(config["GPS_BAUD"])
+                else "FAIL",
+                f"configured={config['GPS_BAUD']}, "
+                f"reported={status.get('gps', {}).get('reported_baud') or 'unknown'}",
+            ),
             Check("gpsd_service", "PASS" if status.get("gps", {}).get("service") == "ACTIVE" else "FAIL", status.get("gps", {}).get("service", "unknown")),
             Check("gps_message_flow", "PASS" if status.get("gps", {}).get("fix") != "UNKNOWN" else "FAIL", status.get("gps", {}).get("fix", "unknown")),
             Check("gps_fix", "PASS" if status.get("gps", {}).get("fix") in {"2D", "3D"} else "WARN", status.get("gps", {}).get("fix", "unknown"), essential=False),

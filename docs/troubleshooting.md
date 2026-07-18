@@ -51,8 +51,11 @@ gpspipe -r -n 20
 
 Confirm `/etc/default/gpsd` lists `/dev/serial0 /dev/pps0`, uses `-n`, and that
 no other process has the serial device open. Verify HAT seating, antenna power,
-and the expected 9600 baud. Binary u-blox output may not look like readable
-NMEA; `gpsmon` or `cgps -s` is a better protocol-aware check.
+and `-s 115200` for a V6.0+ board. The Uputronics datasheet says older boards
+defaulted to 9600; do not change the current profile unless the physical board
+revision has been identified. Binary u-blox output may not look like readable
+NMEA; `gpsmon` or `cgps -s` is a better protocol-aware check. Confirm GPSD's
+detected speed with its `DEVICE` JSON report or `gpsctl`.
 
 ## GPS has no satellite fix indoors
 

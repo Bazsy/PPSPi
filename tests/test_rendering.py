@@ -36,7 +36,7 @@ class RenderingTests(unittest.TestCase):
 
     def test_gpsd_opens_devices_at_start_without_hotplug(self) -> None:
         rendered = render_gpsd(self.config)
-        self.assertIn('GPSD_OPTIONS="-n"', rendered)
+        self.assertIn('GPSD_OPTIONS="-n -s 115200"', rendered)
         self.assertIn('DEVICES="/dev/serial0 /dev/pps0"', rendered)
         self.assertIn('USBAUTO="false"', rendered)
 

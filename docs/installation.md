@@ -6,7 +6,7 @@ into a PPSPi appliance. For downloadable image use, see the README.
 ## Prerequisites
 
 - Raspberry Pi 4 Model B;
-- current Uputronics GPS/RTC Expansion Board with RV-3028-C7 RTC;
+- Uputronics GPS/RTC Expansion Board V6.0+ with RV-3028-C7 RTC;
 - active antenna connected before power-on;
 - wired Ethernet;
 - Raspberry Pi OS Lite 64-bit Bookworm;

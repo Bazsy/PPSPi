@@ -50,6 +50,7 @@ CONFIG_KEYS = frozenset(
 
 BOOLEAN_KEYS = frozenset({"GPSD_ENABLED", "RTC_ENABLED", "CHRONY_ENABLED", "SSH_ENABLED"})
 DEVICE_KEYS = frozenset({"GPS_DEVICE", "PPS_DEVICE", "RTC_DEVICE"})
+GPSD_BAUD_RATES = frozenset({4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800})
 SAFE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
 PROFILE_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # NTP client networks accepted by configuration validation. This intentionally
@@ -187,8 +188,9 @@ def validate_config(config: Mapping[str, str]) -> None:
         baud = int(config["GPS_BAUD"])
     except ValueError as exc:
         raise ConfigError("GPS_BAUD must be an integer") from exc
-    if not 1200 <= baud <= 921600:
-        raise ConfigError("GPS_BAUD must be between 1200 and 921600")
+    if baud not in GPSD_BAUD_RATES:
+        supported = ", ".join(str(rate) for rate in sorted(GPSD_BAUD_RATES))
+        raise ConfigError(f"GPS_BAUD must be one of: {supported}")
 
     try:
         gpio = int(config["PPS_GPIO"])
@@ -314,7 +316,7 @@ def render_gpsd(config: Mapping[str, str]) -> str:
     return (
         "# Managed by PPSPi.\n"
         f'START_DAEMON="{enabled}"\n'
-        f'GPSD_OPTIONS="{config["GPSD_OPTIONS"]}"\n'
+        f'GPSD_OPTIONS="{config["GPSD_OPTIONS"]} -s {config["GPS_BAUD"]}"\n'
         f'DEVICES="{devices}"\n'
         'USBAUTO="false"\n'
         'GPSD_SOCKET="/run/gpsd.sock"\n'
@@ -479,26 +481,38 @@ def parse_chrony_clients(text: str) -> int:
     return count
 
 
-def parse_gpsd_json(text: str) -> dict[str, Any]:
+def parse_gpsd_json(text: str, *, device: str | None = None) -> dict[str, Any]:
     """Return the newest TPV and SKY observations from a gpspipe JSON stream."""
 
     tpv: dict[str, Any] = {}
     sky: dict[str, Any] = {}
+    reported_baud: int | None = None
     for line in text.splitlines():
         try:
             record = json.loads(line)
         except json.JSONDecodeError:
             continue
+        candidate_devices: list[dict[str, Any]] = []
         if record.get("class") == "TPV":
             tpv = record
         elif record.get("class") == "SKY":
             sky = record
+        elif record.get("class") == "DEVICE":
+            candidate_devices = [record]
+        elif record.get("class") == "DEVICES":
+            candidate_devices = record.get("devices", [])
+        for candidate in candidate_devices:
+            if device is None or candidate.get("path") == device:
+                baud = candidate.get("bps")
+                if isinstance(baud, int):
+                    reported_baud = baud
     mode = int(tpv.get("mode", 0) or 0)
     satellites_used = sum(1 for satellite in sky.get("satellites", []) if satellite.get("used"))
     return {
         "mode": mode,
         "fix": {0: "UNKNOWN", 1: "NO FIX", 2: "2D", 3: "3D"}.get(mode, "UNKNOWN"),
         "satellites_used": satellites_used,
+        "reported_baud": reported_baud,
     }
 
 

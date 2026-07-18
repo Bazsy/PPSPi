@@ -90,7 +90,7 @@ def collect_status(config_path: Path, fixture_dir: Path | None = None) -> dict[s
     tracking = parse_key_value_output(tracking_result.stdout)
     sources = parse_chrony_sources(source_result.stdout)
     selected = next((source["name"] for source in sources if source["state"] == "*"), None)
-    gps = parse_gpsd_json(gps_result.stdout)
+    gps = parse_gpsd_json(gps_result.stdout, device=config["GPS_DEVICE"])
     fixture_mode = fixture_dir is not None
     fixture_devices: dict[str, bool] = {}
     if fixture_dir is not None:
@@ -128,6 +128,8 @@ def collect_status(config_path: Path, fixture_dir: Path | None = None) -> dict[s
         "profile": config["PPSTIME_PROFILE"],
         "gps": {
             "device": config["GPS_DEVICE"],
+            "configured_baud": int(config["GPS_BAUD"]),
+            "reported_baud": gps["reported_baud"],
             "serial": "OK" if serial_exists else "MISSING",
             "service": "ACTIVE" if gpsd_service.stdout.strip() == "active" else "INACTIVE",
             "fix": gps["fix"],
@@ -160,6 +162,8 @@ def render_human(status: dict[str, Any]) -> str:
     rows = [
         ("Profile", status["profile"]),
         ("GPS device", status["gps"]["device"]),
+        ("GPS configured baud", status["gps"]["configured_baud"]),
+        ("GPS reported baud", status["gps"]["reported_baud"] or "UNKNOWN"),
         ("GPS serial", status["gps"]["serial"]),
         ("GPSD service", status["gps"]["service"]),
         ("GPS fix", status["gps"]["fix"]),

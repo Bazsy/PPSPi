@@ -21,6 +21,9 @@ All notable changes are documented here. PPSPi follows
 
 - expanded the default NTP client allow-list to all RFC 1918 IPv4 ranges and
   RFC 4193 IPv6 ULA while keeping other address classes rejected.
+- corrected the Uputronics V6.0+ profile to its manufacturer-documented 115200
+  baud default, fixed GPSD to that configured speed, and exposed baud in status
+  output; older Uputronics boards remain documented as 9600-baud hardware.
 
 ### Security
 

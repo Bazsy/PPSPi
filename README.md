@@ -11,7 +11,7 @@ while staying close to the standard Raspberry Pi OS appliance model.
 
 > [!IMPORTANT]
 > PPSPi is pre-release software. The configuration is source-verified for the
-> current Uputronics GPS/RTC Expansion Board, but the complete Raspberry Pi 4
+> Uputronics GPS/RTC Expansion Board V6.0+, but the complete Raspberry Pi 4
 > hardware acceptance plan has not yet been executed. Do not use it as a sole
 > production time source until a release includes a completed hardware report.
 
@@ -20,7 +20,7 @@ while staying close to the standard Raspberry Pi OS appliance model.
 The first milestone deliberately supports one tested target:
 
 - Raspberry Pi 4 Model B;
-- current Uputronics GPS/RTC Expansion Board with RV-3028-C7 RTC;
+- Uputronics GPS/RTC Expansion Board V6.0+ with RV-3028-C7 RTC;
 - active GNSS antenna with a clear view of the sky;
 - wired Ethernet;
 - Raspberry Pi OS Lite 64-bit Bookworm.

@@ -5,8 +5,8 @@
 The initial profile targets:
 
 - Raspberry Pi 4 Model B;
-- Uputronics **GPS/RTC Expansion Board for Raspberry Pi**, current RV-3028-C7
-  revision;
+- Uputronics **GPS/RTC Expansion Board for Raspberry Pi** V6.0 or later, with
+  RV-3028-C7 RTC;
 - active external GNSS antenna;
 - Ethernet;
 - Raspberry Pi OS Lite 64-bit Bookworm.
@@ -21,7 +21,7 @@ revision uses the same overlay.
 | Function | BCM GPIO / bus | Header pin | Linux/PPSPi setting | Evidence |
 | --- | --- | --- | --- | --- |
 | GPS UART transmit from Pi | GPIO 14 / TXD | 8 | `/dev/serial0` | Uputronics-linked pinout |
-| GPS UART receive at Pi | GPIO 15 / RXD | 10 | `/dev/serial0`, 9600 baud | Uputronics-linked pinout |
+| GPS UART receive at Pi | GPIO 15 / RXD | 10 | `/dev/serial0`, 115200 baud | Uputronics V6.4 datasheet |
 | PPS | GPIO 18 | 12 | `dtoverlay=pps-gpio,gpiopin=18` | Uputronics-linked pinout and firmware overlay definition |
 | RTC I2C data | GPIO 2 / SDA1 | 3 | I2C1 | Uputronics-linked pinout |
 | RTC I2C clock | GPIO 3 / SCL1 | 5 | I2C1 | Uputronics-linked pinout |
@@ -30,6 +30,14 @@ revision uses the same overlay.
 The current board is described as using a Micro Crystal **RV-3028-C7** RTC and
 a u-blox M8-family GNSS receiver. The linked pinout identifies the u-blox device
 at I2C address `0x42`, but PPSPi uses its UART output for GPSD.
+
+The Uputronics datasheet revision 6.4 (March 2026) says it applies to PCB V6.4
+and covers all versions later than V6.0. Page 2 specifies a default baud rate of
+**115200 bps**, and page 6 verifies serial operation with `minicom -b 115200`.
+The same page explicitly states that **older boards defaulted to 9600 baud**.
+PPSPi therefore fixes GPSD at 115200 for this V6.0+ profile instead of waiting
+for autobaud. An older board needs a separately identified profile or an
+explicit, hardware-verified override.
 
 The Raspberry Pi firmware overlay documentation confirms:
 
@@ -58,7 +66,8 @@ Before a release candidate is accepted:
 2. confirm the RTC appears at `0x52` with `i2cdetect -y 1`;
 3. confirm the driver reports an RV-3028 device;
 4. confirm the board's PPS trace reaches physical pin 12 / BCM GPIO 18;
-5. run the complete [hardware acceptance plan](hardware-test-plan.md).
+5. confirm GPSD reports 115200 bps for the serial device;
+6. run the complete [hardware acceptance plan](hardware-test-plan.md).
 
 If the physical board has another RTC, stop. Add a separately named profile
 only after finding authoritative documentation for that revision. Do not change

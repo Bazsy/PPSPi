@@ -29,9 +29,10 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(parse_chrony_clients(self.fixture("chronyc-clients.txt")), 4)
 
     def test_gps_fix_and_satellites(self) -> None:
-        gps = parse_gpsd_json(self.fixture("gpspipe.txt"))
+        gps = parse_gpsd_json(self.fixture("gpspipe.txt"), device="/dev/serial0")
         self.assertEqual(gps["fix"], "3D")
         self.assertEqual(gps["satellites_used"], 4)
+        self.assertEqual(gps["reported_baud"], 115200)
 
     def test_real_ppstest_sequence_format(self) -> None:
         self.assertTrue(parse_ppstest(self.fixture("ppstest.txt")))

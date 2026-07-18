@@ -31,8 +31,10 @@ ppstime-status --json
     "system_offset_seconds": "0.000002300"
   },
   "gps": {
+    "configured_baud": 115200,
     "device": "/dev/serial0",
     "fix": "3D",
+    "reported_baud": 115200,
     "satellites_used": 4,
     "serial": "OK",
     "service": "ACTIVE"

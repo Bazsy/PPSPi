@@ -43,6 +43,8 @@ class StatusTests(unittest.TestCase):
             )
             status = self.run_status(config_path, FIXTURES)
         self.assertEqual(status["gps"]["fix"], "3D")
+        self.assertEqual(status["gps"]["configured_baud"], 115200)
+        self.assertEqual(status["gps"]["reported_baud"], 115200)
         self.assertEqual(status["pps"]["pulses"], "ACTIVE")
         self.assertEqual(status["rtc"]["status"], "OK")
         self.assertEqual(status["chrony"]["state"], "SYNCHRONIZED")
@@ -157,6 +159,50 @@ class StatusTests(unittest.TestCase):
             )
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertTrue(json.loads(process.stdout)["ok"])
+
+    def test_deep_validation_rejects_reported_baud_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture_dir = root / "fixtures"
+            shutil.copytree(FIXTURES, fixture_dir)
+            gpspipe = fixture_dir / "gpspipe.txt"
+            gpspipe.write_text(
+                gpspipe.read_text(encoding="utf-8").replace('"bps":115200', '"bps":9600'),
+                encoding="utf-8",
+            )
+            config_path = root / "ppstime.env"
+            config_path.write_text(
+                config_to_env(load_config(PROJECT_ROOT, environ={})), encoding="utf-8"
+            )
+            boot_path = root / "config.txt"
+            boot_path.write_text(
+                "enable_uart=1\n"
+                "dtoverlay=pps-gpio,gpiopin=18\n"
+                "dtoverlay=i2c-rtc,rv3028\n",
+                encoding="utf-8",
+            )
+            process = subprocess.run(
+                [
+                    sys.executable,
+                    str(CORE_PATH / "ppstime-test"),
+                    "--json",
+                    "--config",
+                    str(config_path),
+                    "--fixture-dir",
+                    str(fixture_dir),
+                    "--boot-config",
+                    str(boot_path),
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+        result = json.loads(process.stdout)
+        baud_check = next(check for check in result["checks"] if check["name"] == "gps_baud")
+        self.assertEqual(process.returncode, 1, process.stderr)
+        self.assertFalse(result["ok"])
+        self.assertEqual(baud_check["status"], "FAIL")
+        self.assertEqual(baud_check["message"], "configured=115200, reported=9600")
 
 
 if __name__ == "__main__":
