@@ -38,7 +38,9 @@ class StatusTests(unittest.TestCase):
     def test_successful_stratum_one_status(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             config_path = Path(temporary) / "ppstime.env"
-            config_path.write_text(config_to_env(load_config(PROJECT_ROOT, environ={})), encoding="utf-8")
+            config_path.write_text(
+                config_to_env(load_config(PROJECT_ROOT, environ={})), encoding="utf-8"
+            )
             status = self.run_status(config_path, FIXTURES)
         self.assertEqual(status["gps"]["fix"], "3D")
         self.assertEqual(status["pps"]["pulses"], "ACTIVE")
@@ -62,7 +64,9 @@ class StatusTests(unittest.TestCase):
             )
             (fixture_dir / "ppstest.txt").write_text("timeout waiting for PPS\n", encoding="utf-8")
             config_path = root / "ppstime.env"
-            config_path.write_text(config_to_env(load_config(PROJECT_ROOT, environ={})), encoding="utf-8")
+            config_path.write_text(
+                config_to_env(load_config(PROJECT_ROOT, environ={})), encoding="utf-8"
+            )
             status = self.run_status(config_path, fixture_dir)
         self.assertEqual(status["chrony"]["selected_source"], "192.0.2.1")
         self.assertEqual(status["pps"]["pulses"], "INACTIVE")

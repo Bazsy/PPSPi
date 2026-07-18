@@ -1,0 +1,64 @@
+name: Attach release image
+
+# Publishing a GitHub Release is the only event that can run this workflow.
+# Pull-request merges and tag pushes do not create or publish releases.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build ${{ github.event.release.tag_name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    environment: release
+    steps:
+      - name: Check out released tag
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Validate tag and committed version
+        id: version
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          version="${TAG_NAME#v}"
+          [[ "${TAG_NAME}" == v* && "${version}" =~ ${semver} ]] || {
+            echo "Release tag must be v<semantic-version>: ${TAG_NAME}" >&2
+            exit 1
+          }
+          committed_version="$(tr -d '[:space:]' < VERSION)"
+          [[ "${version}" == "${committed_version}" ]] || {
+            echo "Tag ${version} does not match VERSION (${committed_version})" >&2
+            exit 1
+          }
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run static tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Reclaim runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          docker system prune --all --force
+          df -h
+
+      - name: Build release image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/build-image.sh --version "${VERSION}" --output-dir artifacts
+
+      - name: Attach assets to the published GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: gh release upload "${TAG_NAME}" artifacts/* --clobber

@@ -29,7 +29,9 @@ class InstallerTests(unittest.TestCase):
             ]
             first = subprocess.run(command, capture_output=True, check=False, text=True)
             self.assertEqual(first.returncode, 0, first.stderr)
-            installed_config = (root / "etc" / "ppstime" / "ppstime.env").read_text(encoding="utf-8")
+            installed_config = (root / "etc" / "ppstime" / "ppstime.env").read_text(
+                encoding="utf-8"
+            )
             installed_boot = config_txt.read_text(encoding="utf-8")
             backups_after_first = sorted(boot.glob("*.ppstime-*.bak"))
 

@@ -1,0 +1,45 @@
+name: Build test image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version used in artifact names
+        required: true
+        default: 0.1.0-dev
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Raspberry Pi OS Bookworm arm64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Run static tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Reclaim runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          docker system prune --all --force
+          df -h
+      - name: Build and package image
+        env:
+          VERSION: ${{ inputs.version }}
+        run: ./scripts/build-image.sh --version "${VERSION}" --output-dir artifacts
+      - name: Upload test image
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: ppspi-${{ inputs.version }}-bookworm-arm64
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

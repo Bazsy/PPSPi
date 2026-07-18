@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly SOURCE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+SOURCE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly SOURCE_ROOT
 readonly PACKAGES=(chrony gpsd gpsd-clients pps-tools i2c-tools jq python3)
 
 target_root="/"
@@ -13,7 +15,7 @@ skip_packages="false"
 allow_unsupported_model="false"
 
 usage() {
-    cat <<'EOF'
+    cat << 'EOF'
 Usage: sudo ./scripts/install.sh [options]
 
 Options:
@@ -166,7 +168,7 @@ if [[ "${target_root}" == "/" && "${dry_run}" == "false" ]]; then
     systemctl daemon-reload
     systemctl enable chrony.service gpsd.service
     systemctl enable ppstime-rtc-restore.service ppstime-rtc-save.timer ppstime-healthcheck.timer
-    if systemctl list-unit-files fake-hwclock.service >/dev/null 2>&1; then
+    if systemctl list-unit-files fake-hwclock.service > /dev/null 2>&1; then
         systemctl disable --now fake-hwclock.service || true
     fi
     udevadm control --reload-rules

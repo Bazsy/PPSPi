@@ -507,6 +507,10 @@ def sanitize_config(config: Mapping[str, str]) -> dict[str, str]:
 
     sensitive_fragments = ("PASSWORD", "SECRET", "TOKEN", "PRIVATE", "WIFI", "SSID", "KEY")
     return {
-        key: "<redacted>" if any(fragment in key.upper() for fragment in sensitive_fragments) else value
+        key: (
+            "<redacted>"
+            if any(fragment in key.upper() for fragment in sensitive_fragments)
+            else value
+        )
         for key, value in sorted(config.items())
     }

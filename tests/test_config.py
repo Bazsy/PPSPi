@@ -9,7 +9,13 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "files" / "ppstime"))
 
-from ppstime_core import ConfigError, load_config, model_is_supported, parse_env_file, validate_config
+from ppstime_core import (
+    ConfigError,
+    load_config,
+    model_is_supported,
+    parse_env_file,
+    validate_config,
+)
 
 
 class ConfigTests(unittest.TestCase):

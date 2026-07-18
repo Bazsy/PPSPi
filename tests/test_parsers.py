@@ -8,7 +8,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = PROJECT_ROOT / "tests" / "fixtures" / "stratum1"
 sys.path.insert(0, str(PROJECT_ROOT / "files" / "ppstime"))
 
-from ppstime_core import parse_chrony_clients, parse_chrony_sources, parse_gpsd_json, parse_ppstest
+from ppstime_core import (
+    parse_chrony_clients,
+    parse_chrony_sources,
+    parse_gpsd_json,
+    parse_ppstest,
+)
 
 
 class ParserTests(unittest.TestCase):

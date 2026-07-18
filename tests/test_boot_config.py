@@ -7,7 +7,13 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "files" / "ppstime"))
 
-from ppstime_core import ConfigError, load_config, remove_serial_console, render_boot_block, update_managed_block
+from ppstime_core import (
+    ConfigError,
+    load_config,
+    remove_serial_console,
+    render_boot_block,
+    update_managed_block,
+)
 
 
 class BootConfigTests(unittest.TestCase):
