@@ -1,0 +1,78 @@
+name: Bug report
+description: Report reproducible PPSPi behavior that differs from the documentation.
+title: "[Bug]: "
+labels:
+  - bug
+  - testing
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove credentials, serial numbers, public IP addresses, precise locations, and unrelated logs.
+        For security issues, stop and use private vulnerability reporting instead.
+  - type: input
+    id: version
+    attributes:
+      label: PPSPi version or commit
+      placeholder: v0.1.0 or full Git commit
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - Released image
+        - scripts/install.sh
+        - pi-gen/local image
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: pi-model
+    attributes:
+      label: Raspberry Pi model and revision
+      placeholder: Raspberry Pi 4 Model B Rev 1.5
+    validations:
+      required: true
+  - type: input
+    id: hat
+    attributes:
+      label: Uputronics HAT revision and RTC marking
+      description: Do not include a serial number.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include exact commands and whether GPS, PPS, network, and RTC were available.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Paste only relevant excerpts or attach a support bundle after inspecting every file.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I inspected all attached diagnostics for private information.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
