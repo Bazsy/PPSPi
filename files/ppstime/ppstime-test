@@ -7,6 +7,7 @@ import argparse
 import json
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
@@ -28,6 +29,24 @@ def port_123_listening() -> bool:
     return result.returncode == 0 and any(
         line.split()[4].endswith(":123") for line in result.stdout.splitlines() if len(line.split()) >= 5
     )
+
+
+def query_local_ntp() -> bool:
+    """Send one minimal SNTP client request and validate the server response."""
+
+    request = bytearray(48)
+    request[0] = 0x23  # LI=0, NTP version=4, mode=3 (client)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+            client.settimeout(3)
+            client.sendto(request, ("127.0.0.1", 123))
+            response, _ = client.recvfrom(512)
+    except OSError:
+        return False
+    if len(response) < 48:
+        return False
+    leap_version_mode, stratum = struct.unpack("!BB", response[:2])
+    return leap_version_mode & 0x07 == 4 and 0 <= stratum <= 15
 
 
 def main() -> int:
@@ -81,11 +100,12 @@ def main() -> int:
             None,
         )
     boot_text = boot_path.read_text(encoding="utf-8") if boot_path and boot_path.exists() else ""
-    required_boot_lines = (
+    required_boot_lines = [
         "enable_uart=1",
         f"dtoverlay=pps-gpio,gpiopin={config['PPS_GPIO']}",
-        f"dtoverlay=i2c-rtc,{config['RTC_OVERLAY']}",
-    )
+    ]
+    if config["RTC_ENABLED"] == "true":
+        required_boot_lines.append(f"dtoverlay=i2c-rtc,{config['RTC_OVERLAY']}")
     boot_ok = all(line in boot_text for line in required_boot_lines)
     checks.append(Check("boot_configuration", "PASS" if boot_ok else "FAIL", str(boot_path or "not found")))
 
@@ -112,10 +132,7 @@ def main() -> int:
         config_check = run_command(["chronyd", "-p", "-f", "/etc/chrony/chrony.conf"], timeout=10)
         chrony_config_ok = config_check.returncode == 0
         listening = port_123_listening()
-        query = run_command(
-            ["chronyd", "-Q", "-t", "3", "server 127.0.0.1 iburst maxsamples 1"], timeout=8
-        )
-        query_ok = query.returncode == 0
+        query_ok = query_local_ntp()
         failed_units = run_command(
             ["systemctl", "is-failed", "chrony.service", "gpsd.service", "ppstime-rtc-restore.service"]
         )

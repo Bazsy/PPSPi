@@ -70,8 +70,22 @@ def main() -> int:
             print("Chrony validation failed; services were not restarted", file=sys.stderr)
             return 1
         subprocess.run(["systemctl", "daemon-reload"], check=True)
-        subprocess.run(["systemctl", "restart", "chrony.service"], check=True)
-        subprocess.run(["systemctl", "restart", "gpsd.service"], check=True)
+        for key, units in (
+            ("CHRONY_ENABLED", ["chrony.service"]),
+            ("GPSD_ENABLED", ["gpsd.service", "gpsd.socket"]),
+        ):
+            if config[key] == "true":
+                subprocess.run(["systemctl", "enable", *units], check=True)
+                subprocess.run(["systemctl", "restart", units[0]], check=True)
+            else:
+                subprocess.run(["systemctl", "disable", "--now", *units], check=True)
+        rtc_units = ["ppstime-rtc-restore.service", "ppstime-rtc-save.timer"]
+        if config["RTC_ENABLED"] == "true":
+            subprocess.run(["systemctl", "enable", *rtc_units], check=True)
+            subprocess.run(["systemctl", "start", "ppstime-rtc-save.timer"], check=True)
+        else:
+            subprocess.run(["systemctl", "disable", "--now", *rtc_units], check=True)
+        subprocess.run(["systemctl", "enable", "--now", "ppstime-healthcheck.timer"], check=True)
         print("PPSPi configuration applied")
         return 0
     except (ConfigError, OSError, subprocess.CalledProcessError) as exc:

@@ -147,9 +147,7 @@ def collect_status(config_path: Path, fixture_dir: Path | None = None) -> dict[s
             "state": "SYNCHRONIZED" if chrony_synchronized else "NOT SYNCHRONIZED",
             "selected_source": selected,
             "stratum": int(tracking["Stratum"]) if tracking.get("Stratum", "").isdigit() else None,
-            "system_offset_seconds": first_number(
-                tracking.get("System time") or tracking.get("Last offset")
-            ),
+            "system_offset_seconds": first_number(tracking.get("Last offset")),
             "root_dispersion_seconds": first_number(tracking.get("Root dispersion")),
         },
         "ntp_clients": parse_chrony_clients(client_result.stdout)

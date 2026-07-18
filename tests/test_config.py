@@ -32,6 +32,17 @@ class ConfigTests(unittest.TestCase):
         config = load_config(PROJECT_ROOT, environ={"NTP_ALLOW": "10.42.0.0/16"})
         self.assertEqual(config["NTP_ALLOW"], "10.42.0.0/16")
 
+    def test_custom_file_can_select_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            custom = Path(temporary) / "custom.env"
+            custom.write_text(
+                "PPSTIME_PROFILE=uputronics-gps-rtc-hat\nNTP_ALLOW=10.50.0.0/16\n",
+                encoding="utf-8",
+            )
+            config = load_config(PROJECT_ROOT, custom_path=custom, environ={})
+        self.assertEqual(config["PPSTIME_PROFILE"], "uputronics-gps-rtc-hat")
+        self.assertEqual(config["NTP_ALLOW"], "10.50.0.0/16")
+
     def test_rejects_public_or_invalid_cidr(self) -> None:
         for value in ("0.0.0.0/0", "8.8.8.0/24", "192.168.1.1/24", "not-a-cidr"):
             with self.subTest(value=value):

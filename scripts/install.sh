@@ -166,9 +166,24 @@ log "generating boot, GPSD, and Chrony configuration"
 if [[ "${target_root}" == "/" && "${dry_run}" == "false" ]]; then
     log "enabling services"
     systemctl daemon-reload
-    systemctl enable chrony.service gpsd.service
-    systemctl enable ppstime-rtc-restore.service ppstime-rtc-save.timer ppstime-healthcheck.timer
-    if systemctl list-unit-files fake-hwclock.service > /dev/null 2>&1; then
+    if grep -qx 'CHRONY_ENABLED=true' /etc/ppstime/ppstime.env; then
+        systemctl enable chrony.service
+    else
+        systemctl disable --now chrony.service || true
+    fi
+    if grep -qx 'GPSD_ENABLED=true' /etc/ppstime/ppstime.env; then
+        systemctl enable gpsd.service
+    else
+        systemctl disable --now gpsd.service gpsd.socket || true
+    fi
+    systemctl enable ppstime-healthcheck.timer
+    if grep -qx 'RTC_ENABLED=true' /etc/ppstime/ppstime.env; then
+        systemctl enable ppstime-rtc-restore.service ppstime-rtc-save.timer
+    else
+        systemctl disable --now ppstime-rtc-restore.service ppstime-rtc-save.timer || true
+    fi
+    if grep -qx 'RTC_ENABLED=true' /etc/ppstime/ppstime.env &&
+        systemctl list-unit-files fake-hwclock.service > /dev/null 2>&1; then
         systemctl disable --now fake-hwclock.service || true
     fi
     udevadm control --reload-rules

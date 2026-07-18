@@ -127,14 +127,19 @@ def load_config(
     env = os.environ if environ is None else environ
     defaults_path = source_root / "config" / "default.env"
     config = parse_env_file(defaults_path)
-    selected_profile = profile or env.get("PPSTIME_PROFILE") or config.get("PPSTIME_PROFILE")
+    custom_values = parse_env_file(custom_path) if custom_path is not None else {}
+    selected_profile = (
+        profile
+        or env.get("PPSTIME_PROFILE")
+        or custom_values.get("PPSTIME_PROFILE")
+        or config.get("PPSTIME_PROFILE")
+    )
     if not selected_profile or not PROFILE_RE.fullmatch(selected_profile):
         raise ConfigError(f"invalid profile name: {selected_profile!r}")
 
     profile_path = source_root / "config" / "profiles" / f"{selected_profile}.env"
     config.update(parse_env_file(profile_path))
-    if custom_path is not None:
-        config.update(parse_env_file(custom_path))
+    config.update(custom_values)
 
     for key in CONFIG_KEYS:
         if key in env:

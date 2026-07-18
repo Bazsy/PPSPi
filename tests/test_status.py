@@ -48,6 +48,7 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(status["chrony"]["state"], "SYNCHRONIZED")
         self.assertEqual(status["chrony"]["selected_source"], "PPS")
         self.assertEqual(status["chrony"]["stratum"], 1)
+        self.assertEqual(status["chrony"]["system_offset_seconds"], "+0.000002100")
         self.assertEqual(status["ntp_clients"], 4)
 
     def test_network_fallback_and_inactive_pps(self) -> None:
