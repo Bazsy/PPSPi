@@ -48,9 +48,10 @@ way because it has no metadata describing the image's first-boot mechanism.
 
 ## Use an already-downloaded or test image
 
-A local manifest must contain an absolute `file://` URI. Generate it on the
-computer that will run Imager, using the image and its matching
-`build-info.json`:
+For an already-downloaded image or workflow test artifact, download the `.img.xz`
+and its matching `build-info.json`. The test artifact does not contain a ready-made
+`.rpi-imager-manifest`, because that local manifest must contain an absolute
+`file://` URI for your computer. Generate it on the computer that will run Imager:
 
 ```console
 python3 scripts/generate-imager-manifest.py \
