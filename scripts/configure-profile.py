@@ -99,6 +99,19 @@ def main() -> int:
             rooted(root, "/etc/default/gpsd"): (render_gpsd(config), 0o644),
         }
 
+        if config.get("RTC_ENABLED") == "true":
+            modules_path = rooted(root, "/etc/modules-load.d/ppstime-rtc.conf")
+            generated[modules_path] = ("i2c-dev\n", 0o644)
+            if not args.dry_run and (root / "usr" / "sbin" / "hwclock").exists() is False:
+                pkg_list = rooted(root, "/var/lib/dpkg/status")
+                if pkg_list.exists():
+                    import subprocess
+                    subprocess.run(["chroot", str(root), "apt-get", "update"], check=False)
+                    subprocess.run(
+                        ["chroot", str(root), "apt-get", "install", "-y", "util-linux-extra"],
+                        check=False,
+                    )
+
         boot_config = find_boot_file(root, "config.txt")
         boot_existing = boot_config.read_text(encoding="utf-8")
         boot_content = update_managed_block(boot_existing, render_boot_block(config))
