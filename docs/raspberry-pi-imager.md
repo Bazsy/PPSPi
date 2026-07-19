@@ -37,6 +37,14 @@ Configure at least:
 4. SSH only when remote administration is required;
 5. Wi-Fi only when the deployment will not use the preferred wired Ethernet.
 
+> [!IMPORTANT]
+> Use **Next** to continue from every customisation page. Imager's
+> **Skip customisation** button discards **all** choices entered on every page;
+> it does not skip only the current optional page. Before selecting **Write**,
+> verify that the **Customisations to apply** summary lists the hostname, user,
+> network, and SSH choices you expect. If that summary is absent, go back and
+> enter the settings again. The image's unchanged default hostname is `ppspi`.
+
 Prefer public-key SSH authentication and leave password authentication disabled.
 The manifest contains no password, SSH key, Wi-Fi credential, or optional
 hardware capability. Imager writes the operator's choices only to the selected
@@ -52,6 +60,11 @@ For an already-downloaded image or workflow test artifact, download the `.img.xz
 and its matching `build-info.json`. The test artifact does not contain a ready-made
 `.rpi-imager-manifest`, because that local manifest must contain an absolute
 `file://` URI for your computer. Generate it on the computer that will run Imager:
+
+> [!IMPORTANT]
+> Do **not** open `build-info.json` in Imager. It is input to the generator, not
+> an Imager repository. Do not open the `.img.xz` directly either. After running
+> the command below, open only the generated `.rpi-imager-manifest` file.
 
 ```console
 python3 scripts/generate-imager-manifest.py \
