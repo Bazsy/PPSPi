@@ -157,6 +157,16 @@ The current board should appear at `0x52` and use
 the address. A different address or chip marking may indicate an older HAT
 revision; identify it instead of trying arbitrary overlays.
 
+If the restore journal reports that `hwclock` is missing, install
+`util-linux-extra`. If `/dev/rtc0` exists but `/dev/i2c-1` does not, load
+`i2c-dev`. Current PPSPi installs do both automatically; these commands are for
+diagnosing or repairing an older candidate image:
+
+```console
+sudo apt-get install util-linux-extra
+sudo modprobe i2c-dev
+```
+
 ## Time source remains network NTP
 
 This is correct before GPS lock, while PPS is inactive, or while Chrony gathers

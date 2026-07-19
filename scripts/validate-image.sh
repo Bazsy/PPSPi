@@ -58,8 +58,10 @@ sudo mount -o ro "${loop_device}p1" "${root_mount}/boot/firmware"
 
 sudo grep -qx 'VERSION_CODENAME=trixie' "${root_mount}/etc/os-release"
 [[ -x "${root_mount}/usr/bin/cloud-init" ]]
+[[ -x "${root_mount}/usr/sbin/hwclock" ]]
 sudo find "${root_mount}/usr/lib/python3" -type f -name 'cc_raspberry_pi.py' -print -quit |
     grep -q .
+sudo grep -qx 'i2c-dev' "${root_mount}/etc/modules-load.d/ppstime.conf"
 
 for seed_file in meta-data network-config user-data; do
     [[ -s "${root_mount}/boot/firmware/${seed_file}" ]] || {
@@ -97,5 +99,6 @@ fi
 printf '%s\n' 'PPSPi built-image validation passed:'
 printf '%s\n' '  Raspberry Pi OS Trixie arm64'
 printf '%s\n' '  cloud-init-rpi image support present'
+printf '%s\n' '  RTC utility and I2C userspace module configuration present'
 printf '%s\n' '  PPSPi runtime and generated configuration present'
 printf '%s\n' '  temporary account locked and SSH disabled'

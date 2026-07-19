@@ -47,6 +47,13 @@ class InstallerTests(unittest.TestCase):
             self.assertIn("dtparam=audio=on", installed_boot)
             self.assertNotIn("console=serial0", cmdline_txt.read_text(encoding="utf-8"))
             self.assertTrue((root / "usr" / "local" / "sbin" / "ppstime-status").is_symlink())
+            self.assertEqual(
+                (root / "etc" / "modules-load.d" / "ppstime.conf").read_text(
+                    encoding="utf-8"
+                ),
+                "# PPSPi exposes I2C bus devices for hardware validation and diagnostics.\n"
+                "i2c-dev\n",
+            )
 
 
 if __name__ == "__main__":

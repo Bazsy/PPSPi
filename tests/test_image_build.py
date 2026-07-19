@@ -39,6 +39,19 @@ class ImageBuildTests(unittest.TestCase):
         )
         self.assertIn('touch "${checkout_dir}/stage2/SKIP_IMAGES"', build_script)
 
+    def test_rtc_runtime_dependencies_are_in_both_install_paths(self) -> None:
+        install_script = (PROJECT_ROOT / "scripts" / "install.sh").read_text(encoding="utf-8")
+        image_packages = (
+            PROJECT_ROOT / "pi-gen" / "stage-pps-pi" / "00-packages" / "00-packages"
+        ).read_text(encoding="utf-8")
+        image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("util-linux-extra", install_script)
+        self.assertIn("util-linux-extra", image_packages.split())
+        self.assertIn("/usr/sbin/hwclock", image_validator)
+        self.assertIn("/etc/modules-load.d/ppstime.conf", image_validator)
+
     def test_selector_ignores_intermediate_lite_image(self) -> None:
         selector = load_selector()
         with tempfile.TemporaryDirectory() as temporary:

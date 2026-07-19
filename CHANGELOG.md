@@ -44,6 +44,9 @@ All notable changes are documented here. PPSPi follows
 
 ### Fixed
 
+- install Trixie's `util-linux-extra` package so RTC restore/save has
+  `hwclock`, and load `i2c-dev` persistently so `/dev/i2c-1` is available for
+  documented hardware validation and diagnostics.
 - pass the generated pi-gen configuration through `build-docker.sh -c`; the
   previous positional argument left the configuration path empty and failed at
   `realpath` before Docker image construction began.
