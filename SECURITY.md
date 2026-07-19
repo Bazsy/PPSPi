@@ -34,6 +34,12 @@ rule that restricts SSH to `NTP_ALLOW`; do not publish, port-forward, or
 otherwise expose TCP port 22 to the Internet. Public-key authentication is
 recommended optional hardening, not a requirement.
 
+`/etc/ppstime/ppstime.env` is intentionally readable so unprivileged status
+commands can load the active profile. Its parser accepts only a fixed set of
+hardware, timing, service, hostname, and private-LAN settings; credential keys
+are not supported. Wi-Fi and SSH credentials remain managed by Raspberry Pi OS
+outside the PPSPi profile.
+
 Time from civilian GNSS and unauthenticated public NTP can be jammed, spoofed,
 or delayed. PPSPi source selection and fallback improve resilience but do not
 provide cryptographic proof of UTC. Deploy independent time sources and

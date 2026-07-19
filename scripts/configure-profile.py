@@ -94,7 +94,7 @@ def main() -> int:
             return 0
 
         generated = {
-            rooted(root, "/etc/ppstime/ppstime.env"): (config_to_env(config), 0o640),
+            rooted(root, "/etc/ppstime/ppstime.env"): (config_to_env(config), 0o644),
             rooted(root, "/etc/chrony/conf.d/ppstime.conf"): (render_chrony(config), 0o644),
             rooted(root, "/etc/default/gpsd"): (render_gpsd(config), 0o644),
         }

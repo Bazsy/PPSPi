@@ -11,6 +11,14 @@ from pathlib import Path
 from ppstime_core import ConfigError, parse_env_file, parse_key_value_output, run_command, validate_config
 
 
+def rtc_is_uninitialized(stderr: str) -> bool:
+    """Return whether Linux rejected RTC_RD_TIME because the clock is invalid."""
+
+    read_ioctl = "ioctl(RTC_RD_NAME)" in stderr or "ioctl(RTC_RD_TIME)" in stderr
+    invalid_time = "Invalid argument" in stderr or "EINVAL" in stderr
+    return read_ioctl and invalid_time
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("restore", "save"))
@@ -43,8 +51,17 @@ def main() -> int:
             return 0
 
     hwclock_action = "--hctosys" if args.action == "restore" else "--systohc"
-    result = run_command(["hwclock", hwclock_action, "--utc", "--rtc", str(device)], timeout=20)
+    result = run_command(
+        ["env", "LC_ALL=C", "hwclock", hwclock_action, "--utc", "--rtc", str(device)],
+        timeout=20,
+    )
     if result.returncode != 0:
+        if args.action == "restore" and rtc_is_uninitialized(result.stderr):
+            print(
+                "PPSPi RTC restore skipped: hardware clock is uninitialized",
+                file=sys.stderr,
+            )
+            return 0
         print(result.stderr.strip() or f"hwclock {args.action} failed", file=sys.stderr)
         return 1
     print(f"PPSPi RTC {args.action} completed using {device}")

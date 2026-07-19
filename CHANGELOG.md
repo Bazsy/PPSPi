@@ -47,6 +47,14 @@ All notable changes are documented here. PPSPi follows
 
 ### Fixed
 
+- treat the RV-3028's expected first-power-on `EINVAL` read as an uninitialized
+  RTC restore skip instead of leaving a failed systemd unit; other RTC errors
+  remain failures.
+- make the strictly non-secret active profile readable by documented
+  unprivileged status commands and preserve that mode after configuration edits.
+- conditionally remove the pinned Raspberry Pi cloud-init package's stale
+  `netplan_nm_patch` module entry when the package does not ship that module,
+  preventing a successful customized first boot from reporting degraded status.
 - install Trixie's `util-linux-extra` package so RTC restore/save has
   `hwclock`, and load `i2c-dev` persistently so `/dev/i2c-1` is available for
   documented hardware validation and diagnostics.
