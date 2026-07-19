@@ -35,9 +35,11 @@ without modifying the image filesystem.
 Open the supplied `.rpi-imager-manifest` in the current Raspberry Pi Imager.
 Record the Imager version and confirm the PPSPi entry exposes `cloudinit-rpi`
 customisation. Set a non-default hostname, initial username, locale, keyboard,
-and time zone. Enable SSH with an operator public key and keep password
-authentication disabled. After first boot, verify every selected value, key-only
-SSH access, and that no known/default `pi` password grants access.
+and time zone. Enable SSH with a strong, unique operator password on a trusted
+private LAN. After first boot, verify every selected value, password SSH access,
+and that no known/default `pi` password grants access. Confirm TCP port 22 is not
+forwarded or otherwise exposed to the public Internet. Public-key SSH is an
+optional hardening path, not a release requirement.
 
 When Wi-Fi is part of the tested deployment, also configure it in Imager and
 record successful association without exposing the credential. The initial

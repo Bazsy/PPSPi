@@ -21,7 +21,9 @@ compatible with the current profile; see [hardware](hardware.md).
 
 Use Raspberry Pi Imager to install Raspberry Pi OS Lite (64-bit). Imager must
 create the initial user because PPSPi contains no default password. Optionally
-enable SSH with a public key in Imager. Boot the Pi, log in, and install updates:
+enable SSH with a strong, unique password on a trusted private LAN, or use a
+public key if preferred. Do not expose TCP port 22 publicly. Boot the Pi, log in,
+and install updates:
 
 ```console
 sudo apt update

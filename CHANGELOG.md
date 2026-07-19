@@ -41,6 +41,9 @@ All notable changes are documented here. PPSPi follows
 - document the supported release/local manifest paths and a secure manual
   cloud-init boot-partition fallback; **Use custom** remains intentionally
   unsuitable for Trixie customisation in Imager 2.x.
+- accept strong, unique password-authenticated SSH as the approachable baseline
+  on a trusted private LAN, while retaining public keys as optional hardening
+  and warning that PPSPi does not firewall SSH according to `NTP_ALLOW`.
 
 ### Fixed
 
