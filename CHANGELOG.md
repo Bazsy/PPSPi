@@ -13,7 +13,7 @@ All notable changes are documented here. PPSPi follows
 - human-readable and JSON status output;
 - deep installation tests and sanitised diagnostic bundles;
 - fixture-based tests for healthy and degraded timing states;
-- pinned pi-gen Bookworm arm64 image build;
+- pinned pi-gen Trixie arm64 image build;
 - separate lint, test, manual image, and explicitly published release workflows;
 - user, developer, hardware, troubleshooting, and release documentation.
 
@@ -24,6 +24,16 @@ All notable changes are documented here. PPSPi follows
 - corrected the Uputronics V6.0+ profile to its manufacturer-documented 115200
   baud default, fixed GPSD to that configured speed, and exposed baud in status
   output; older Uputronics boards remain documented as 9600-baud hardware.
+- migrated the image base from Debian 12 Bookworm to current Debian 13 Trixie,
+  pinned the official Raspberry Pi `pi-gen` arm64 revision, and enabled native
+  Raspberry Pi cloud-init support for subsequent Imager integration.
+- added read-only image inspection before artifact upload to verify Trixie,
+  native Raspberry Pi cloud-init support, PPSPi runtime/configuration, a locked
+  temporary account, and disabled SSH.
+- switched the GitHub runner's host emulation package to `qemu-user-binfmt`,
+  which provides the `qemu-aarch64` binary required by Trixie pi-gen.
+- register a static arm64 fix-binary interpreter with the pinned Docker QEMU
+  setup action so pi-gen's privileged container can execute arm64 binaries.
 
 ### Fixed
 

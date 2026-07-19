@@ -29,7 +29,7 @@ changes. Installer changes require an alternate-root idempotency test.
 ## Coding standards
 
 Shell code must use `set -Eeuo pipefail`, quote expansions, pass ShellCheck and
-shfmt, and avoid unbounded sleeps. Python supports the Bookworm interpreter,
+shfmt, and avoid unbounded sleeps. Python supports the Trixie interpreter,
 uses type hints and the standard library by default, and passes Ruff. Generated
 configuration must be controlled and validated rather than unrestricted text
 replacement.

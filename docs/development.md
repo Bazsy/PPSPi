@@ -18,7 +18,7 @@ docs/                   operator and release documentation
 
 Runtime and tests use Python's standard library. Static checks use:
 
-- Python 3.10 or 3.11;
+- Python 3.10, 3.11, or Trixie's Python 3.13;
 - Ruff 0.12.5;
 - ShellCheck;
 - shfmt;
@@ -120,7 +120,7 @@ Requirements:
 ./scripts/build-image.sh --version 0.1.0-dev
 ```
 
-The script checks out the pinned `bookworm-arm64` pi-gen commit, prepares the
+The script checks out the pinned `arm64` Trixie pi-gen commit, prepares the
 custom stage, invokes `build-docker.sh`, and writes `artifacts/`. It expects
 exactly one `.img.xz` output.
 

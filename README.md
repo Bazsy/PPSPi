@@ -23,7 +23,7 @@ The first milestone deliberately supports one tested target:
 - Uputronics GPS/RTC Expansion Board V6.0+ with RV-3028-C7 RTC;
 - active GNSS antenna with a clear view of the sky;
 - wired Ethernet;
-- Raspberry Pi OS Lite 64-bit Bookworm.
+- Raspberry Pi OS Lite 64-bit Trixie.
 
 CI verifies that the Pi 4 model policy is accepted and that Pi 3, Pi 5, Pi 400,
 and Zero models are rejected. This is configuration testing, **not hardware
@@ -53,14 +53,14 @@ for startup and GNSS outages. The RTC is only an offline boot aid.
 When hardware-tested images are available, download these files from
 [GitHub Releases](https://github.com/Bazsy/PPSPi/releases):
 
-- `ppspi-<version>-raspios-bookworm-arm64.img.xz`;
+- `ppspi-<version>-raspios-trixie-arm64.img.xz`;
 - the matching `.sha256` file;
 - `build-info.json`.
 
 Verify the image before flashing:
 
 ```console
-sha256sum --check ppspi-<version>-raspios-bookworm-arm64.img.xz.sha256
+sha256sum --check ppspi-<version>-raspios-trixie-arm64.img.xz.sha256
 ```
 
 Use Raspberry Pi Imager's **Use custom** option to select the compressed image.
@@ -77,7 +77,7 @@ service. It retains the standard Raspberry Pi OS first-boot mechanisms.
 
 ## Install on an existing Raspberry Pi OS Lite system
 
-On a clean Bookworm 64-bit installation:
+On a clean Trixie 64-bit installation:
 
 ```console
 git clone https://github.com/Bazsy/PPSPi.git
@@ -172,7 +172,7 @@ capable pi-gen Docker/QEMU environment:
 ```
 
 The build pins official pi-gen commit
-`d7a31c6aa09f4b867902c51da2b45807c0a1709e` and packages XZ, SHA-256, and JSON
+`ca8aeed0ae300c2a89f55ce9617d5f96a27e99e5` and packages XZ, SHA-256, and JSON
 metadata artifacts. See [development](docs/development.md) and
 [image architecture](pi-gen/README.md).
 

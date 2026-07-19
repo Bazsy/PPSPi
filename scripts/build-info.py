@@ -15,7 +15,7 @@ def main() -> int:
     parser.add_argument("--git-commit", required=True)
     parser.add_argument("--build-date-utc", required=True)
     parser.add_argument("--pi-gen-commit", required=True)
-    parser.add_argument("--os-release", default="bookworm")
+    parser.add_argument("--os-release", default="trixie")
     parser.add_argument("--architecture", default="arm64")
     parser.add_argument("--default-profile", default="uputronics-gps-rtc-hat")
     args = parser.parse_args()

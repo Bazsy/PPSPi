@@ -55,7 +55,7 @@ From the GitHub **Actions** tab, run **Build test image** manually on the releas
 candidate commit. Enter the candidate semantic version. This workflow:
 
 - runs the complete static test suite;
-- builds Bookworm arm64 with pinned pi-gen;
+- builds Trixie arm64 with pinned pi-gen;
 - creates the compressed image, SHA-256 file, and metadata;
 - uploads a seven-day workflow artifact;
 - does not create a tag or release.
@@ -92,7 +92,7 @@ Only the `release.published` event starts **Attach release image**. The workflow
 checks out the tag, validates tag and `VERSION`, repeats static tests, rebuilds
 from the tagged source, and attaches:
 
-- `ppspi-<version>-raspios-bookworm-arm64.img.xz`;
+- `ppspi-<version>-raspios-trixie-arm64.img.xz`;
 - its `.sha256` file;
 - `build-info.json`.
 

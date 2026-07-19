@@ -9,7 +9,7 @@ The initial profile targets:
   RV-3028-C7 RTC;
 - active external GNSS antenna;
 - Ethernet;
-- Raspberry Pi OS Lite 64-bit Bookworm.
+- Raspberry Pi OS Lite 64-bit Trixie.
 
 The Uputronics product description says the current board works with Raspberry
 Pi boards using the 2x20 header and is backward-compatible with previous GPS

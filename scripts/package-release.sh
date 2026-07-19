@@ -72,7 +72,7 @@ if metadata["project_version"] != sys.argv[2]:
 ' "${build_info}" "${version}" || die "build metadata validation failed"
 
 mkdir -p "${output_dir}"
-artifact_name="ppspi-${version}-raspios-bookworm-arm64.img.xz"
+artifact_name="ppspi-${version}-raspios-trixie-arm64.img.xz"
 artifact_path="${output_dir%/}/${artifact_name}"
 cp --reflink=auto "${input_image}" "${artifact_path}"
 cp "${build_info}" "${output_dir%/}/build-info.json"

@@ -106,11 +106,11 @@ python3 "${SCRIPT_DIR}/build-info.py" \
     --build-date-utc "${build_date_utc}" \
     --pi-gen-commit "${PI_GEN_COMMIT}"
 
-image_name="ppspi-${version}-raspios-bookworm-arm64"
+image_name="ppspi-${version}-raspios-trixie-arm64"
 cat > "${checkout_dir}/config-ppspi" << EOF
 IMG_NAME='${image_name}'
 PI_GEN_RELEASE='PPSPi ${version}'
-RELEASE='bookworm'
+RELEASE='trixie'
 ARCH='arm64'
 TARGET_HOSTNAME='ppspi'
 LOCALE_DEFAULT='en_GB.UTF-8'
@@ -119,6 +119,7 @@ TIMEZONE_DEFAULT='UTC'
 FIRST_USER_NAME='pi'
 DISABLE_FIRST_BOOT_USER_RENAME=0
 ENABLE_SSH=0
+ENABLE_CLOUD_INIT=1
 STAGE_LIST='stage0 stage1 stage2 stage-pps-pi'
 DEPLOY_COMPRESSION='xz'
 COMPRESSION_LEVEL=6

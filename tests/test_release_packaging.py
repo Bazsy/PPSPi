@@ -59,7 +59,7 @@ class ReleasePackagingTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(package_process.returncode, 0, package_process.stderr)
-            artifact = output / "ppspi-0.1.0-raspios-bookworm-arm64.img.xz"
+            artifact = output / "ppspi-0.1.0-raspios-trixie-arm64.img.xz"
             checksum = artifact.with_suffix(artifact.suffix + ".sha256")
             self.assertTrue(artifact.exists())
             self.assertTrue(checksum.exists())
@@ -68,6 +68,7 @@ class ReleasePackagingTests(unittest.TestCase):
             metadata = json.loads((output / "build-info.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["project_version"], "0.1.0")
             self.assertEqual(metadata["architecture"], "arm64")
+            self.assertEqual(metadata["raspberry_pi_os_release"], "trixie")
             self.assertEqual(metadata["default_profile"], "uputronics-gps-rtc-hat")
 
 

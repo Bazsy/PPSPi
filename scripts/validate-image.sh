@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+image_file="${1:-}"
+[[ -n "${image_file}" ]] || {
+    printf 'Usage: %s IMAGE.img.xz\n' "${0##*/}" >&2
+    exit 2
+}
+[[ -f "${image_file}" && "${image_file}" == *.img.xz ]] || {
+    printf 'PPSPi image validation error: expected an existing .img.xz file\n' >&2
+    exit 2
+}
+
+for command_name in find grep jq losetup mount mountpoint umount xz; do
+    command -v "${command_name}" > /dev/null 2>&1 || {
+        printf 'PPSPi image validation error: missing command %s\n' "${command_name}" >&2
+        exit 2
+    }
+done
+
+work_dir="$(mktemp -d)"
+raw_image="${work_dir}/ppspi.img"
+root_mount="${work_dir}/root"
+loop_device=""
+mkdir -p "${root_mount}"
+
+cleanup() {
+    set +e
+    if mountpoint -q "${root_mount}/boot/firmware"; then
+        sudo umount "${root_mount}/boot/firmware"
+    fi
+    if mountpoint -q "${root_mount}"; then
+        sudo umount "${root_mount}"
+    fi
+    if [[ -n "${loop_device}" ]]; then
+        sudo losetup --detach "${loop_device}"
+    fi
+    rm -rf "${work_dir}"
+}
+trap cleanup EXIT
+
+printf 'Decompressing %s for read-only validation...\n' "${image_file}"
+xz --decompress --stdout "${image_file}" > "${raw_image}"
+loop_device="$(sudo losetup --find --show --read-only --partscan "${raw_image}")"
+
+for _ in {1..20}; do
+    [[ -b "${loop_device}p1" && -b "${loop_device}p2" ]] && break
+    sudo udevadm settle
+done
+[[ -b "${loop_device}p1" && -b "${loop_device}p2" ]] || {
+    printf 'PPSPi image validation error: expected two image partitions\n' >&2
+    exit 1
+}
+
+sudo mount -o ro "${loop_device}p2" "${root_mount}"
+sudo mkdir -p "${root_mount}/boot/firmware"
+sudo mount -o ro "${loop_device}p1" "${root_mount}/boot/firmware"
+
+sudo grep -qx 'VERSION_CODENAME=trixie' "${root_mount}/etc/os-release"
+[[ -x "${root_mount}/usr/bin/cloud-init" ]]
+sudo find "${root_mount}/usr/lib/python3" -type f -name 'cc_raspberry_pi.py' -print -quit |
+    grep -q .
+
+for seed_file in meta-data network-config user-data; do
+    [[ -s "${root_mount}/boot/firmware/${seed_file}" ]] || {
+        printf 'PPSPi image validation error: missing cloud-init seed %s\n' "${seed_file}" >&2
+        exit 1
+    }
+done
+
+sudo jq -e \
+    '.raspberry_pi_os_release == "trixie" and .architecture == "arm64"' \
+    "${root_mount}/etc/ppstime/build-info.json" > /dev/null
+[[ -x "${root_mount}/usr/lib/ppstime/ppstime-status" ]]
+[[ -f "${root_mount}/etc/chrony/conf.d/ppstime.conf" ]]
+sudo grep -q 'GPSD_OPTIONS="-n -s 115200"' "${root_mount}/etc/default/gpsd"
+
+ssh_state="$(sudo systemctl --root="${root_mount}" is-enabled ssh.service 2> /dev/null || true)"
+[[ "${ssh_state}" == "disabled" ]] || {
+    printf 'PPSPi image validation error: SSH state is %s, expected disabled\n' \
+        "${ssh_state:-unknown}" >&2
+    exit 1
+}
+
+first_user_hash="$(sudo awk -F: '$1 == "pi" { print $2 }' "${root_mount}/etc/shadow")"
+[[ "${first_user_hash}" == '!'* || "${first_user_hash}" == '*'* ]] || {
+    printf 'PPSPi image validation error: temporary pi account is not locked\n' >&2
+    exit 1
+}
+
+if sudo find "${root_mount}/home" -type f -name authorized_keys -size +0c -print -quit |
+    grep -q .; then
+    printf 'PPSPi image validation error: image contains an authorized_keys file\n' >&2
+    exit 1
+fi
+
+printf '%s\n' 'PPSPi built-image validation passed:'
+printf '%s\n' '  Raspberry Pi OS Trixie arm64'
+printf '%s\n' '  cloud-init-rpi image support present'
+printf '%s\n' '  PPSPi runtime and generated configuration present'
+printf '%s\n' '  temporary account locked and SSH disabled'

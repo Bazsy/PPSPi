@@ -5,7 +5,7 @@
 
 PPSPi v0.1.0 introduces the source-controlled installer and diagnostics
 milestone for a GPS/PPS Stratum-1 server based on Raspberry Pi OS Lite 64-bit
-Bookworm.
+Trixie.
 
 ## Highlights
 
@@ -17,7 +17,7 @@ Bookworm.
 - guarded RTC restore and low-frequency synchronized save;
 - `ppstime-status`, `ppstime-test`, `ppstime-config`, and sanitised diagnostics;
 - fixture-driven CI and Raspberry Pi model policy tests;
-- pinned pi-gen Bookworm arm64 image tooling and explicit GitHub release gates.
+- pinned pi-gen Trixie arm64 image tooling and explicit GitHub release gates.
 
 ## Security defaults
 
