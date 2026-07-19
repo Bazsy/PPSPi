@@ -1,7 +1,8 @@
 # Installation
 
 This guide converts a clean Raspberry Pi OS Lite 64-bit Trixie installation
-into a PPSPi appliance. For downloadable image use, see the README.
+into a PPSPi appliance. For downloadable images, use the supported
+[Raspberry Pi Imager manifest workflow](raspberry-pi-imager.md).
 
 ## Prerequisites
 

@@ -17,13 +17,16 @@ Trixie.
 - guarded RTC restore and low-frequency synchronized save;
 - `ppstime-status`, `ppstime-test`, `ppstime-config`, and sanitised diagnostics;
 - fixture-driven CI and Raspberry Pi model policy tests;
-- pinned pi-gen Trixie arm64 image tooling and explicit GitHub release gates.
+- pinned pi-gen Trixie arm64 image tooling and explicit GitHub release gates;
+- Raspberry Pi Imager 2.x `cloudinit-rpi` manifests for release and local image
+  customisation.
 
 ## Security defaults
 
 The image contains no default password, project SSH key, or wireless credential.
 SSH is disabled. Initial account creation and optional key injection use
-Raspberry Pi Imager. NTP access is limited to validated private CIDRs.
+Raspberry Pi Imager through the supplied manifest. NTP access is limited to
+validated private CIDRs.
 
 ## Default LAN access
 

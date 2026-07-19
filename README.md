@@ -55,7 +55,8 @@ When hardware-tested images are available, download these files from
 
 - `ppspi-<version>-raspios-trixie-arm64.img.xz`;
 - the matching `.sha256` file;
-- `build-info.json`.
+- `build-info.json`;
+- `ppspi-<version>-raspios-trixie-arm64.rpi-imager-manifest`.
 
 Verify the image before flashing:
 
@@ -63,8 +64,10 @@ Verify the image before flashing:
 sha256sum --check ppspi-<version>-raspios-trixie-arm64.img.xz.sha256
 ```
 
-Use Raspberry Pi Imager's **Use custom** option to select the compressed image.
-In Imager customisation:
+Use current Raspberry Pi Imager 2.x and open the `.rpi-imager-manifest` file,
+not the image's **Use custom** path. The manifest identifies the exact release
+image as `cloudinit-rpi`, restricts it to Raspberry Pi 4 Model B, and enables
+Imager customisation. Then:
 
 1. choose a hostname and create the initial user;
 2. set locale and timezone;
@@ -73,7 +76,9 @@ In Imager customisation:
 5. leave Wi-Fi unset for the initial wired-Ethernet target.
 
 PPSPi ships no default password, SSH key, Wi-Fi credential, or enabled SSH
-service. It retains the standard Raspberry Pi OS first-boot mechanisms.
+service. See the [Raspberry Pi Imager guide](docs/raspberry-pi-imager.md) for
+double-click and Content Repository loading, local/test images, integrity
+metadata, and the manual boot-partition fallback.
 
 ## Install on an existing Raspberry Pi OS Lite system
 
@@ -173,7 +178,8 @@ capable pi-gen Docker/QEMU environment:
 
 The build pins official pi-gen commit
 `ca8aeed0ae300c2a89f55ce9617d5f96a27e99e5` and packages XZ, SHA-256, and JSON
-metadata artifacts. See [development](docs/development.md) and
+metadata artifacts. Published releases also include an Imager manifest. See
+[development](docs/development.md) and
 [image architecture](pi-gen/README.md).
 
 ## Release controls
@@ -218,6 +224,7 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 ## Documentation
 
 - [Installation](docs/installation.md)
+- [Raspberry Pi Imager](docs/raspberry-pi-imager.md)
 - [Hardware](docs/hardware.md)
 - [Architecture](docs/architecture.md)
 - [Chrony design](docs/chrony.md)

@@ -57,6 +57,8 @@ candidate commit. Enter the candidate semantic version. This workflow:
 - runs the complete static test suite;
 - builds Trixie arm64 with pinned pi-gen;
 - creates the compressed image, SHA-256 file, and metadata;
+- validates that a local `cloudinit-rpi` Imager manifest can be generated from
+    the built image and metadata;
 - uploads a seven-day workflow artifact;
 - does not create a tag or release.
 
@@ -94,10 +96,11 @@ from the tagged source, and attaches:
 
 - `ppspi-<version>-raspios-trixie-arm64.img.xz`;
 - its `.sha256` file;
-- `build-info.json`.
+- `build-info.json`;
+- `ppspi-<version>-raspios-trixie-arm64.rpi-imager-manifest`.
 
 Publishing makes the release visible before the long image build finishes. Add
-a release note that assets are building, then verify all three attachments and
+a release note that assets are building, then verify all four attachments and
 their checksums when the workflow completes. A failed workflow can be re-run;
 asset upload uses `--clobber` for that tag.
 
@@ -106,9 +109,11 @@ asset upload uses `--clobber` for that tag.
 1. Download the assets from the public release page.
 2. Verify the SHA-256 file from a clean directory.
 3. Validate every `build-info.json` field against the tag and workflow.
-4. Flash the public download and perform a shortened smoke boot.
-5. Confirm no credentials or local identifiers are present.
-6. Open the next development version pull request, such as `0.2.0-dev`.
+4. Open the public `.rpi-imager-manifest` in current Imager 2.x and confirm the
+    versioned PPSPi entry and customisation pages appear.
+5. Flash the public download and perform a shortened smoke boot.
+6. Confirm no credentials or local identifiers are present.
+7. Open the next development version pull request, such as `0.2.0-dev`.
 
 ## Release trigger summary
 

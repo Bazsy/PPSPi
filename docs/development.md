@@ -48,7 +48,9 @@ The suite covers:
 - successful Stratum-1 and degraded timing states;
 - full `ppstime-test` fixture behavior;
 - alternate-root installation run twice;
-- XZ packaging, build metadata, and SHA-256 output.
+- XZ packaging, build metadata, and SHA-256 output;
+- Raspberry Pi Imager 2.x manifest schema fields, local and release URLs, and
+  compressed/extracted integrity values.
 
 Fixture data lives in `tests/fixtures`. Keep it representative of real command
 formats and remove hostnames, IP addresses, serials, and other private data
@@ -123,6 +125,20 @@ Requirements:
 The script checks out the pinned `arm64` Trixie pi-gen commit, prepares the
 custom stage, invokes `build-docker.sh`, and writes `artifacts/`. It expects
 exactly one `.img.xz` output.
+
+Generate a manifest for a locally built image on the workstation that will run
+Imager:
+
+```console
+python3 scripts/generate-imager-manifest.py \
+  --image artifacts/ppspi-0.1.0-dev-raspios-trixie-arm64.img.xz \
+  --build-info artifacts/build-info.json
+```
+
+The local file URI is absolute, so regenerate the manifest if the image moves.
+Release builds instead pass a versioned HTTPS asset URL through
+`--image-url`; ordinary test artifacts do not publish a misleading CI-local
+manifest.
 
 CI runner disk cleanup is deliberately in the image workflows, not in the build
 script, because deleting host SDKs is appropriate only on an ephemeral runner.
