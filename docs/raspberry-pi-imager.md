@@ -45,7 +45,10 @@ Configure at least:
 > network, and SSH choices you expect. If that summary is absent, go back and
 > enter the settings again. The image's unchanged default hostname is `ppspi`.
 
-Prefer public-key SSH authentication and leave password authentication disabled.
+Password SSH is an accepted baseline for experimentation on a trusted private
+LAN. Use a strong, unique password and do not forward or otherwise expose TCP
+port 22 to the public Internet. Public-key authentication remains available as
+optional hardening for operators comfortable managing keys.
 The manifest contains no password, SSH key, Wi-Fi credential, or optional
 hardware capability. Imager writes the operator's choices only to the selected
 storage during flashing.

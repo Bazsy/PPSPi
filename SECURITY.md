@@ -28,6 +28,12 @@ networks. It does not expose an administration API. SSH configuration, user
 creation, operating-system updates, physical access, and LAN firewall policy
 remain the operator's responsibility.
 
+Password-authenticated SSH is supported for an appliance on a trusted private
+LAN when the password is strong and unique. PPSPi does not install a firewall
+rule that restricts SSH to `NTP_ALLOW`; do not publish, port-forward, or
+otherwise expose TCP port 22 to the Internet. Public-key authentication is
+recommended optional hardening, not a requirement.
+
 Time from civilian GNSS and unauthenticated public NTP can be jammed, spoofed,
 or delayed. PPSPi source selection and fallback improve resilience but do not
 provide cryptographic proof of UTC. Deploy independent time sources and

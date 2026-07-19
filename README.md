@@ -72,7 +72,8 @@ Imager customisation. Then:
 1. choose a hostname and create the initial user;
 2. set locale and timezone;
 3. enable SSH only if needed;
-4. prefer public-key authentication;
+4. use a strong, unique password on a trusted private LAN, or configure a
+  public key if preferred;
 5. leave Wi-Fi unset for the initial wired-Ethernet target.
 
 PPSPi ships no default password, SSH key, Wi-Fi credential, or enabled SSH
@@ -200,6 +201,8 @@ See the [release process](docs/release-process.md) for the exact gates.
 
 - no default password or project SSH key;
 - SSH disabled until the owner enables it through Imager;
+- password SSH accepted for a trusted private LAN, provided the password is
+  strong and unique and TCP port 22 is not exposed publicly;
 - no web or administrative API;
 - NTP allowed by default from all RFC 1918 IPv4 and RFC 4193 IPv6 ULA ranges;
 - public, loopback, link-local, CGNAT, multicast, and test ranges rejected;
