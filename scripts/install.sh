@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 SOURCE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly SOURCE_ROOT
-readonly PACKAGES=(chrony gpsd gpsd-clients pps-tools i2c-tools jq python3)
+readonly PACKAGES=(chrony gpsd gpsd-clients pps-tools i2c-tools jq python3 util-linux-extra)
 
 target_root="/"
 profile=""
@@ -152,6 +152,8 @@ for profile_file in "${SOURCE_ROOT}"/config/profiles/*.env; do
 done
 
 copy_file "${SOURCE_ROOT}/files/udev/80-ppstime.rules" "/etc/udev/rules.d/80-ppstime.rules" 0644
+copy_file "${SOURCE_ROOT}/files/modules-load.d/ppstime.conf" \
+    "/etc/modules-load.d/ppstime.conf" 0644
 for unit_file in "${SOURCE_ROOT}"/files/systemd/*.service "${SOURCE_ROOT}"/files/systemd/*.timer; do
     copy_file "${unit_file}" "/etc/systemd/system/$(basename "${unit_file}")" 0644
 done

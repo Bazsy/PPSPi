@@ -1,1 +1,1 @@
-chrony gpsd gpsd-clients pps-tools i2c-tools jq python3
+chrony gpsd gpsd-clients pps-tools i2c-tools jq python3 util-linux-extra
