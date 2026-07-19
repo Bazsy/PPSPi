@@ -1,6 +1,6 @@
 # Installation
 
-This guide converts a clean Raspberry Pi OS Lite 64-bit Bookworm installation
+This guide converts a clean Raspberry Pi OS Lite 64-bit Trixie installation
 into a PPSPi appliance. For downloadable image use, see the README.
 
 ## Prerequisites
@@ -9,7 +9,7 @@ into a PPSPi appliance. For downloadable image use, see the README.
 - Uputronics GPS/RTC Expansion Board V6.0+ with RV-3028-C7 RTC;
 - active antenna connected before power-on;
 - wired Ethernet;
-- Raspberry Pi OS Lite 64-bit Bookworm;
+- Raspberry Pi OS Lite 64-bit Trixie;
 - an initial user with `sudo` access;
 - Internet access while packages are installed.
 

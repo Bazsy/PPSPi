@@ -41,8 +41,10 @@ jobs:
       - name: Run shell checks
         run: |
           shellcheck scripts/install.sh scripts/build-image.sh scripts/package-release.sh \
+            scripts/validate-image.sh \
             pi-gen/stage-pps-pi/prerun.sh pi-gen/stage-pps-pi/01-install/00-run.sh
           shfmt -d -i 4 -ci -sr scripts/install.sh scripts/build-image.sh scripts/package-release.sh \
+            scripts/validate-image.sh \
             pi-gen/stage-pps-pi/prerun.sh pi-gen/stage-pps-pi/01-install/00-run.sh
 
       - name: Run YAML and workflow checks

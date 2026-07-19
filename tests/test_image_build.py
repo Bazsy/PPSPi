@@ -20,6 +20,12 @@ def load_selector() -> ModuleType:
 
 
 class ImageBuildTests(unittest.TestCase):
+    def test_pi_gen_pin_is_official_trixie_arm64_revision(self) -> None:
+        pin = (PROJECT_ROOT / "pi-gen" / "PI_GEN_COMMIT").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(pin.strip(), "ca8aeed0ae300c2a89f55ce9617d5f96a27e99e5")
+
     def test_pi_gen_docker_config_uses_c_option(self) -> None:
         build_script = (PROJECT_ROOT / "scripts" / "build-image.sh").read_text(
             encoding="utf-8"
@@ -38,15 +44,15 @@ class ImageBuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             deploy_dir = Path(temporary)
             final_image = deploy_dir / (
-                "image_2026-07-18-ppspi-0.1.0-dev-raspios-bookworm-arm64.img.xz"
+                "image_2026-07-18-ppspi-0.1.0-dev-raspios-trixie-arm64.img.xz"
             )
             lite_image = deploy_dir / (
-                "image_2026-07-18-ppspi-0.1.0-dev-raspios-bookworm-arm64-lite.img.xz"
+                "image_2026-07-18-ppspi-0.1.0-dev-raspios-trixie-arm64-lite.img.xz"
             )
             final_image.touch()
             lite_image.touch()
             selected = selector.select_image(
-                deploy_dir, "ppspi-0.1.0-dev-raspios-bookworm-arm64"
+                deploy_dir, "ppspi-0.1.0-dev-raspios-trixie-arm64"
             )
         self.assertEqual(selected, final_image.resolve())
 
@@ -55,15 +61,53 @@ class ImageBuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             deploy_dir = Path(temporary)
             for date in ("2026-07-18", "2026-07-19"):
-                (deploy_dir / f"image_{date}-ppspi-0.1.0-dev-raspios-bookworm-arm64.img.xz").touch()
+                (deploy_dir / f"image_{date}-ppspi-0.1.0-dev-raspios-trixie-arm64.img.xz").touch()
             with self.assertRaisesRegex(ValueError, "found 2"):
-                selector.select_image(deploy_dir, "ppspi-0.1.0-dev-raspios-bookworm-arm64")
+                selector.select_image(deploy_dir, "ppspi-0.1.0-dev-raspios-trixie-arm64")
 
     def test_workflow_installs_pi_gen_host_emulation(self) -> None:
         workflow = (PROJECT_ROOT / ".github" / "workflows" / "build-image.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("binfmt-support qemu-user-static", workflow)
+        self.assertIn("binfmt-support qemu-user-binfmt", workflow)
+        self.assertNotIn("binfmt-support qemu-user-static", workflow)
+        self.assertIn(
+            "docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8",
+            workflow,
+        )
+        self.assertIn(
+            "image: docker.io/tonistiigi/binfmt@sha256:"
+            "400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0",
+            workflow,
+        )
+        self.assertIn("platforms: arm64", workflow)
+        self.assertIn("reset: true", workflow)
+        self.assertIn("/proc/sys/fs/binfmt_misc/qemu-aarch64", workflow)
+        self.assertIn("grep --extended-regexp '^flags:.*F'", workflow)
+
+    def test_build_targets_trixie_with_native_cloud_init(self) -> None:
+        build_script = (PROJECT_ROOT / "scripts" / "build-image.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("RELEASE='trixie'", build_script)
+        self.assertIn("ENABLE_CLOUD_INIT=1", build_script)
+        self.assertNotIn("RELEASE='bookworm'", build_script)
+
+    def test_workflow_names_trixie_artifacts(self) -> None:
+        workflow = (PROJECT_ROOT / ".github" / "workflows" / "build-image.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Raspberry Pi OS Trixie arm64", workflow)
+        self.assertIn("ppspi-${{ inputs.version }}-trixie-arm64", workflow)
+        self.assertNotIn("bookworm-arm64", workflow)
+
+    def test_workflow_validates_built_image_before_upload(self) -> None:
+        workflow = (PROJECT_ROOT / ".github" / "workflows" / "build-image.yml").read_text(
+            encoding="utf-8"
+        )
+        validation = "./scripts/validate-image.sh artifacts/*.img.xz"
+        self.assertIn(validation, workflow)
+        self.assertLess(workflow.index(validation), workflow.index("Upload test image"))
 
 
 if __name__ == "__main__":
