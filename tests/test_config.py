@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "files" / "ppstime"))
 
 from ppstime_core import (
+    CONFIG_KEYS,
     ConfigError,
     load_config,
     model_is_supported,
@@ -33,6 +34,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(
             self.config["NTP_ALLOW"],
             "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7",
+        )
+
+    def test_active_configuration_has_no_secret_keys(self) -> None:
+        sensitive = ("PASSWORD", "SECRET", "TOKEN", "PRIVATE", "WIFI", "SSID", "KEY")
+        self.assertFalse(
+            [key for key in CONFIG_KEYS if any(fragment in key for fragment in sensitive)]
         )
 
     def test_environment_override_is_validated(self) -> None:

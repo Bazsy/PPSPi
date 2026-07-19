@@ -62,6 +62,11 @@ sudo grep -qx 'VERSION_CODENAME=trixie' "${root_mount}/etc/os-release"
 sudo find "${root_mount}/usr/lib/python3" -type f -name 'cc_raspberry_pi.py' -print -quit |
     grep -q .
 sudo grep -qx 'i2c-dev' "${root_mount}/etc/modules-load.d/ppstime.conf"
+if sudo grep -qE '^[[:space:]]*-[[:space:]]*netplan_nm_patch[[:space:]]*$' \
+    "${root_mount}/etc/cloud/cloud.cfg"; then
+    printf 'PPSPi image validation error: cloud-init references missing netplan_nm_patch\n' >&2
+    exit 1
+fi
 
 for seed_file in meta-data network-config user-data; do
     [[ -s "${root_mount}/boot/firmware/${seed_file}" ]] || {
@@ -74,6 +79,7 @@ sudo jq -e \
     '.raspberry_pi_os_release == "trixie" and .architecture == "arm64"' \
     "${root_mount}/etc/ppstime/build-info.json" > /dev/null
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-status" ]]
+[[ "$(sudo stat -c '%a' "${root_mount}/etc/ppstime/ppstime.env")" == "644" ]]
 [[ -f "${root_mount}/etc/chrony/conf.d/ppstime.conf" ]]
 sudo grep -q 'GPSD_OPTIONS="-n -s 115200"' "${root_mount}/etc/default/gpsd"
 

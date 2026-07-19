@@ -52,6 +52,30 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("/usr/sbin/hwclock", image_validator)
         self.assertIn("/etc/modules-load.d/ppstime.conf", image_validator)
 
+    def test_image_removes_only_missing_cloud_init_module(self) -> None:
+        stage_script = (
+            PROJECT_ROOT / "pi-gen" / "stage-pps-pi" / "01-install" / "00-run.sh"
+        ).read_text(encoding="utf-8")
+        image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("import cloudinit.config.cc_netplan_nm_patch", stage_script)
+        self.assertIn("netplan_nm_patch", image_validator)
+
+    def test_active_profile_is_non_secret_and_world_readable(self) -> None:
+        configure_script = (PROJECT_ROOT / "scripts" / "configure-profile.py").read_text(
+            encoding="utf-8"
+        )
+        config_tool = (PROJECT_ROOT / "files" / "ppstime" / "ppstime-config").read_text(
+            encoding="utf-8"
+        )
+        image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("(config_to_env(config), 0o644)", configure_script)
+        self.assertIn("mode=0o644", config_tool)
+        self.assertIn("/etc/ppstime/ppstime.env", image_validator)
+
     def test_selector_ignores_intermediate_lite_image(self) -> None:
         selector = load_selector()
         with tempfile.TemporaryDirectory() as temporary:

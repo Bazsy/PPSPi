@@ -167,6 +167,21 @@ sudo apt-get install util-linux-extra
 sudo modprobe i2c-dev
 ```
 
+On the first boot after the RTC has lost backup power, the kernel may report
+`hctosys: unable to read the hardware clock` and `hwclock` may return
+`Invalid argument`. Current PPSPi treats this specific state as an uninitialized
+RTC and skips restore without failing the unit. Once Chrony is synchronized, the
+guarded save timer initializes the RTC. Other read errors remain failures.
+
+If `ppstime-status` reports permission denied for `/etc/ppstime/ppstime.env`,
+the candidate predates the unprivileged status fix. The active profile contains
+only validated hardware and service settings, not credentials. Repair its mode
+with:
+
+```console
+sudo chmod 0644 /etc/ppstime/ppstime.env
+```
+
 ## Time source remains network NTP
 
 This is correct before GPS lock, while PPS is inactive, or while Chrony gathers

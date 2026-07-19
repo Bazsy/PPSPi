@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -31,6 +32,10 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(first.returncode, 0, first.stderr)
             installed_config = (root / "etc" / "ppstime" / "ppstime.env").read_text(
                 encoding="utf-8"
+            )
+            self.assertEqual(
+                stat.S_IMODE((root / "etc" / "ppstime" / "ppstime.env").stat().st_mode),
+                0o644,
             )
             installed_boot = config_txt.read_text(encoding="utf-8")
             backups_after_first = sorted(boot.glob("*.ppstime-*.bak"))
