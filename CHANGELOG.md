@@ -33,7 +33,14 @@ All notable changes are documented here. PPSPi follows
 - switched the GitHub runner's host emulation package to `qemu-user-binfmt`,
   which provides the `qemu-aarch64` binary required by Trixie pi-gen.
 - register a static arm64 fix-binary interpreter with the pinned Docker QEMU
-  setup action so pi-gen's privileged container can execute arm64 binaries.
+  setup action so pi-gen's privileged container can execute arm64 binaries in
+  both manual test-image and published-release builds.
+- generate Raspberry Pi Imager 2.x manifests with `cloudinit-rpi`, Pi 4-only
+  device metadata, versioned release URLs, and compressed/extracted SHA-256 and
+  size values.
+- document the supported release/local manifest paths and a secure manual
+  cloud-init boot-partition fallback; **Use custom** remains intentionally
+  unsuitable for Trixie customisation in Imager 2.x.
 
 ### Fixed
 

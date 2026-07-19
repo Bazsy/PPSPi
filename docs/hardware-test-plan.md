@@ -8,7 +8,7 @@ on the exact image artifact and record results using
 
 Record before testing:
 
-- PPSPi version, Git commit, and image SHA-256;
+- PPSPi version, Git commit, image SHA-256, and Imager manifest filename;
 - `build-info.json`;
 - Raspberry Pi model, revision, RAM, and bootloader version;
 - Uputronics product/revision markings and RTC chip marking;
@@ -32,8 +32,16 @@ without modifying the image filesystem.
 
 ### 2. First-boot user creation works
 
-Use Raspberry Pi Imager customisation. Confirm the chosen user works and no
-known/default `pi` password grants access.
+Open the supplied `.rpi-imager-manifest` in the current Raspberry Pi Imager.
+Record the Imager version and confirm the PPSPi entry exposes `cloudinit-rpi`
+customisation. Set a non-default hostname, initial username, locale, keyboard,
+and time zone. Enable SSH with an operator public key and keep password
+authentication disabled. After first boot, verify every selected value, key-only
+SSH access, and that no known/default `pi` password grants access.
+
+When Wi-Fi is part of the tested deployment, also configure it in Imager and
+record successful association without exposing the credential. The initial
+wired-Ethernet target does not require Wi-Fi to pass.
 
 ### 3. Ethernet obtains an address
 

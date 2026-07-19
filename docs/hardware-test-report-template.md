@@ -10,6 +10,8 @@ Status: **NOT RUN**
 | Git commit | |
 | Image filename | |
 | SHA-256 | |
+| Imager manifest filename | |
+| Raspberry Pi Imager version | |
 | pi-gen commit | |
 | Build date UTC | |
 
@@ -35,7 +37,7 @@ Status: **NOT RUN**
 | # | Check | Result | Evidence / notes |
 | ---: | --- | --- | --- |
 | 1 | Fresh image boots | NOT RUN | |
-| 2 | First-boot user creation | NOT RUN | |
+| 2 | Imager hostname, user, locale, and key-only SSH | NOT RUN | |
 | 3 | Ethernet address | NOT RUN | |
 | 4 | `/dev/serial0` | NOT RUN | |
 | 5 | GPSD data | NOT RUN | |
@@ -82,6 +84,7 @@ deviation from the documented procedure. Link issues for unresolved items.
 
 - [ ] No default password or embedded key was found.
 - [ ] SSH remained disabled unless explicitly enabled in Imager.
+- [ ] The chosen hostname, account, locale, timezone, and SSH policy were applied.
 - [ ] NTP allowed and denied network tests behaved correctly.
 - [ ] Diagnostics were inspected and sanitised.
 - [ ] Public report contains no private site or device information.

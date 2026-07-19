@@ -5,6 +5,7 @@ input_image=""
 build_info=""
 version=""
 output_dir="artifacts"
+image_url=""
 readonly SEMVER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 
 usage() {
@@ -13,6 +14,7 @@ Usage: ./scripts/package-release.sh --image PATH --build-info PATH --version VER
 
 Options:
   --output-dir PATH  Destination directory (default: artifacts).
+    --image-url URL    Generate an Imager manifest for this release image URL.
   -h, --help         Show this help.
 EOF
 }
@@ -42,6 +44,11 @@ while (($# > 0)); do
         --output-dir)
             (($# >= 2)) || die "--output-dir requires a value"
             output_dir="$2"
+            shift 2
+            ;;
+        --image-url)
+            (($# >= 2)) || die "--image-url requires a value"
+            image_url="$2"
             shift 2
             ;;
         -h | --help)
@@ -81,4 +88,15 @@ cp "${build_info}" "${output_dir%/}/build-info.json"
     sha256sum "${artifact_name}" > "${artifact_name}.sha256"
 )
 
-printf '%s\n' "${artifact_path}" "${artifact_path}.sha256" "${output_dir%/}/build-info.json"
+outputs=("${artifact_path}" "${artifact_path}.sha256" "${output_dir%/}/build-info.json")
+if [[ -n "${image_url}" ]]; then
+    manifest_path="${output_dir%/}/ppspi-${version}-raspios-trixie-arm64.rpi-imager-manifest"
+    python3 "$(dirname "${BASH_SOURCE[0]}")/generate-imager-manifest.py" \
+        --image "${artifact_path}" \
+        --build-info "${output_dir%/}/build-info.json" \
+        --image-url "${image_url}" \
+        --output "${manifest_path}" > /dev/null
+    outputs+=("${manifest_path}")
+fi
+
+printf '%s\n' "${outputs[@]}"

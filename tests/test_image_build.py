@@ -106,8 +106,24 @@ class ImageBuildTests(unittest.TestCase):
             encoding="utf-8"
         )
         validation = "./scripts/validate-image.sh artifacts/*.img.xz"
+        manifest = "scripts/generate-imager-manifest.py"
         self.assertIn(validation, workflow)
-        self.assertLess(workflow.index(validation), workflow.index("Upload test image"))
+        self.assertIn(manifest, workflow)
+        self.assertLess(workflow.index(validation), workflow.index(manifest))
+        self.assertLess(workflow.index(manifest), workflow.index("Upload test image"))
+
+    def test_release_workflow_generates_versioned_imager_manifest(self) -> None:
+        workflow = (PROJECT_ROOT / ".github" / "workflows" / "release.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("binfmt-support qemu-user-binfmt", workflow)
+        self.assertIn(
+            "docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8",
+            workflow,
+        )
+        self.assertIn("/proc/sys/fs/binfmt_misc/qemu-aarch64", workflow)
+        self.assertIn("releases/download/${TAG_NAME}/ppspi-${VERSION}", workflow)
+        self.assertIn('--image-url "${image_url}"', workflow)
 
 
 if __name__ == "__main__":

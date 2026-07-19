@@ -13,6 +13,7 @@ version="$(tr -d '[:space:]' < "${SOURCE_ROOT}/VERSION")"
 output_dir="${SOURCE_ROOT}/artifacts"
 checkout_dir="${SOURCE_ROOT}/.pi-gen/checkout"
 prepare_only="false"
+image_url=""
 readonly SEMVER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 
 usage() {
@@ -23,6 +24,7 @@ Options:
   --version VERSION       Artifact version (default: VERSION file).
   --output-dir PATH       Packaged output directory (default: artifacts).
   --checkout-dir PATH     Reusable pi-gen checkout location.
+    --image-url URL         Add an Imager manifest for this release image URL.
   --prepare-only          Prepare and validate pi-gen without running Docker.
   -h, --help              Show this help.
 EOF
@@ -48,6 +50,11 @@ while (($# > 0)); do
         --checkout-dir)
             (($# >= 2)) || die "--checkout-dir requires a value"
             checkout_dir="$2"
+            shift 2
+            ;;
+        --image-url)
+            (($# >= 2)) || die "--image-url requires a value"
+            image_url="$2"
             shift 2
             ;;
         --prepare-only)
@@ -144,8 +151,13 @@ if ! image_path="$(
 )"; then
     die "could not select the final pi-gen image"
 fi
-"${SCRIPT_DIR}/package-release.sh" \
-    --image "${image_path}" \
-    --build-info "${payload_dir}/build-info.json" \
-    --version "${version}" \
+package_args=(
+    --image "${image_path}"
+    --build-info "${payload_dir}/build-info.json"
+    --version "${version}"
     --output-dir "${output_dir}"
+)
+if [[ -n "${image_url}" ]]; then
+    package_args+=(--image-url "${image_url}")
+fi
+"${SCRIPT_DIR}/package-release.sh" "${package_args[@]}"
