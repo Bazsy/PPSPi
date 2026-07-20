@@ -7,7 +7,7 @@ graph TD
     Receiver["Uputronics GNSS receiver"] -->|NMEA or UBX over serial0| GPSD["gpsd -n"]
     Receiver -->|Rising PPS edge on GPIO 18| GPIO["pps-gpio kernel driver"]
     GPIO -->|/dev/pps0 timestamp| PPS["Chrony PPS refclock"]
-    GPSD -->|/run/chrony.serial0.sock| GPS["Chrony GPS SOCK refclock"]
+        GPSD -->|/run/chrony.clk.serial0.sock| GPS["Chrony GPS SOCK refclock"]
     GPS -->|lock identifies UTC second| PPS
     Pool["pool.ntp.org or configured pool"] -->|Startup and fallback| Chrony["Chrony source selection"]
     PPS --> Chrony

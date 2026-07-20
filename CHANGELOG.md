@@ -47,6 +47,11 @@ All notable changes are documented here. PPSPi follows
 
 ### Fixed
 
+- use GPSD 3.25's `chrony.clk.<device>.sock` coarse-clock path so Chrony receives
+  GPS second labels and can lock/select direct PPS.
+- retain valid satellite counts when GPSD interleaves populated and empty SKY
+  reports, and detect unprivileged PPS activity through Linux PPS sysfs instead
+  of the privileged `PPS_SETPARAMS` path used by `ppstest`.
 - enable RV-3028 level-switching backup mode for the Uputronics V6.0+ profile,
   allowing its twin supercapacitors to maintain RTC time while Pi power is
   removed; mode `0` remains available for profiles without backup power.

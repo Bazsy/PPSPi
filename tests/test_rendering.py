@@ -16,7 +16,7 @@ class RenderingTests(unittest.TestCase):
 
     def test_chrony_separates_gps_label_and_pps_precision(self) -> None:
         rendered = render_chrony(self.config)
-        self.assertIn("refclock SOCK /run/chrony.serial0.sock refid GPS", rendered)
+        self.assertIn("refclock SOCK /run/chrony.clk.serial0.sock refid GPS", rendered)
         self.assertIn("delay 0.2 noselect", rendered)
         self.assertIn("refclock PPS /dev/pps0 refid PPS lock GPS", rendered)
         self.assertIn("prefer precision 1e-7", rendered)

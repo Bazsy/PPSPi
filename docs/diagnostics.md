@@ -20,6 +20,10 @@ read. If `/dev/rtc0` is root-only, it falls back to the matching world-readable
 Linux sysfs RTC name/date/time. This fallback is read-only; setting the RTC and
 restoring the system clock remain privileged operations.
 
+PPS activity is also checked without device write access by observing the
+world-readable Linux PPS assert sequence in sysfs across one pulse period. The
+deeper root-only test continues to use `ppstest` for detailed pulse evidence.
+
 Machine-readable output has a versioned stable structure:
 
 ```console

@@ -76,6 +76,15 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("mode=0o644", config_tool)
         self.assertIn("/etc/ppstime/ppstime.env", image_validator)
 
+    def test_image_requires_gpsd_coarse_clock_socket(self) -> None:
+        image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "refclock SOCK /run/chrony.clk.serial0.sock refid GPS",
+            image_validator,
+        )
+
     def test_selector_ignores_intermediate_lite_image(self) -> None:
         selector = load_selector()
         with tempfile.TemporaryDirectory() as temporary:
