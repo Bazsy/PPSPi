@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -423,6 +424,38 @@ def run_command(command: Sequence[str], *, timeout: float = 10.0) -> CommandResu
         stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
         return CommandResult(124, stdout, stderr or f"timed out after {timeout} seconds")
     return CommandResult(process.returncode, process.stdout, process.stderr)
+
+
+def read_rtc_sysfs(
+    device: str | Path, *, sysfs_root: Path = Path("/sys/class/rtc")
+) -> CommandResult:
+    """Read a validated RTC timestamp from world-readable Linux sysfs files."""
+
+    rtc_name = Path(device).name
+    if not re.fullmatch(r"rtc[0-9]+", rtc_name):
+        return CommandResult(1, "", f"invalid RTC device name: {rtc_name}")
+    rtc_dir = sysfs_root / rtc_name
+    try:
+        driver = (rtc_dir / "name").read_text(encoding="utf-8").strip()
+        if not driver or not re.fullmatch(r"[A-Za-z0-9._:+ -]+", driver):
+            raise ValueError("invalid RTC driver name")
+        for _ in range(3):
+            date_before = (rtc_dir / "date").read_text(encoding="ascii").strip()
+            rtc_time = (rtc_dir / "time").read_text(encoding="ascii").strip()
+            date_after = (rtc_dir / "date").read_text(encoding="ascii").strip()
+            if date_before != date_after:
+                continue
+            timestamp = datetime.strptime(
+                f"{date_before} {rtc_time}", "%Y-%m-%d %H:%M:%S"
+            )
+            return CommandResult(
+                0,
+                f"{timestamp:%Y-%m-%d %H:%M:%S} UTC (sysfs; {driver})\n",
+                "",
+            )
+        return CommandResult(1, "", "RTC date changed repeatedly while reading sysfs")
+    except (OSError, UnicodeError, ValueError) as exc:
+        return CommandResult(1, "", f"cannot read RTC sysfs state: {exc}")
 
 
 def parse_key_value_output(text: str) -> dict[str, str]:

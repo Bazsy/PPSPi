@@ -15,6 +15,11 @@ Important fields are GPS fix, PPS activity, RTC state, Chrony synchronization,
 selected source, Stratum, and client count. `PPS` selected at Stratum 1 is the
 target after the receiver has a valid fix and Chrony has settled.
 
+When run unprivileged, `ppstime-status` first attempts the normal `hwclock`
+read. If `/dev/rtc0` is root-only, it falls back to the matching world-readable
+Linux sysfs RTC name/date/time. This fallback is read-only; setting the RTC and
+restoring the system clock remain privileged operations.
+
 Machine-readable output has a versioned stable structure:
 
 ```console

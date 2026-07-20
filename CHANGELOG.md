@@ -47,6 +47,9 @@ All notable changes are documented here. PPSPi follows
 
 ### Fixed
 
+- let unprivileged `ppstime-status` fall back to validated, world-readable RTC
+  sysfs date/time when the root-only RTC device rejects `hwclock`, while keeping
+  RTC setting and restore operations privileged.
 - treat the RV-3028's expected first-power-on `EINVAL` read as an uninitialized
   RTC restore skip instead of leaving a failed systemd unit; other RTC errors
   remain failures.
