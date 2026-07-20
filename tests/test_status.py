@@ -7,16 +7,60 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CORE_PATH = PROJECT_ROOT / "files" / "ppstime"
 FIXTURES = PROJECT_ROOT / "tests" / "fixtures" / "stratum1"
 sys.path.insert(0, str(CORE_PATH))
 
-from ppstime_core import config_to_env, load_config
+from ppstime_core import config_to_env, load_config, read_rtc_sysfs
 
 
 class StatusTests(unittest.TestCase):
+    def test_unprivileged_rtc_sysfs_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            rtc_dir = Path(temporary) / "rtc0"
+            rtc_dir.mkdir()
+            (rtc_dir / "name").write_text("rtc-rv3028 1-0052\n", encoding="utf-8")
+            (rtc_dir / "date").write_text("2026-07-20\n", encoding="ascii")
+            (rtc_dir / "time").write_text("06:34:32\n", encoding="ascii")
+            result = read_rtc_sysfs("/dev/rtc0", sysfs_root=Path(temporary))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout,
+            "2026-07-20 06:34:32 UTC (sysfs; rtc-rv3028 1-0052)\n",
+        )
+
+    def test_rtc_sysfs_fallback_rejects_malformed_time(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            rtc_dir = Path(temporary) / "rtc0"
+            rtc_dir.mkdir()
+            (rtc_dir / "name").write_text("rtc-rv3028 1-0052\n", encoding="utf-8")
+            (rtc_dir / "date").write_text("2026-07-20\n", encoding="ascii")
+            (rtc_dir / "time").write_text("not-a-time\n", encoding="ascii")
+            result = read_rtc_sysfs("/dev/rtc0", sysfs_root=Path(temporary))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("cannot read RTC sysfs state", result.stderr)
+
+    def test_rtc_sysfs_fallback_retries_midnight_rollover(self) -> None:
+        dates = iter(("2026-07-20\n", "2026-07-21\n", "2026-07-21\n", "2026-07-21\n"))
+        times = iter(("23:59:59\n", "00:00:01\n"))
+
+        def fake_read_text(path: Path, *, encoding: str) -> str:
+            if path.name == "name":
+                return "rtc-rv3028 1-0052\n"
+            if path.name == "date":
+                return next(dates)
+            if path.name == "time":
+                return next(times)
+            raise AssertionError(path)
+
+        with patch.object(Path, "read_text", new=fake_read_text):
+            result = read_rtc_sysfs("/dev/rtc0", sysfs_root=Path("/sys/class/rtc"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("2026-07-21 00:00:01 UTC", result.stdout)
+
     def run_status(self, config_path: Path, fixture_dir: Path) -> dict[str, object]:
         process = subprocess.run(
             [

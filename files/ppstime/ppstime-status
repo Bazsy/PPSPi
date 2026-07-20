@@ -19,6 +19,7 @@ from ppstime_core import (
     parse_gpsd_json,
     parse_key_value_output,
     parse_ppstest,
+    read_rtc_sysfs,
     run_command,
     validate_config,
 )
@@ -80,6 +81,8 @@ def collect_status(config_path: Path, fixture_dir: Path | None = None) -> dict[s
         ["hwclock", "--show", "--utc", "--rtc", config["RTC_DEVICE"]],
         timeout=5,
     )
+    if fixture_dir is None and rtc_result.returncode != 0:
+        rtc_result = read_rtc_sysfs(config["RTC_DEVICE"])
     chrony_service = fixture_or_command(
         fixture_dir, "chrony_service", ["systemctl", "is-active", "chrony.service"]
     )
