@@ -15,6 +15,10 @@ allow 192.168.0.0/16
 allow fc00::/7
 ```
 
+PPSPi also permits the exact loopback host routes `127.0.0.1/32` and `::1/128`
+so its privileged deep test can verify the NTP response locally. These routes
+do not add access from any external interface.
+
 The complete file is rendered from validated values and includes comments. Do
 not edit it directly; use `ppstime-config`.
 
@@ -69,7 +73,8 @@ through the profile. Public sources are clients of PPSPi, not LAN access rules.
 
 ## Serving the LAN
 
-Each comma-separated `NTP_ALLOW` CIDR becomes one Chrony `allow` directive.
+Each comma-separated `NTP_ALLOW` CIDR becomes one Chrony `allow` directive in
+addition to the fixed loopback-only health-check routes.
 Validation accepts only subnets inside:
 
 - `10.0.0.0/8`;
@@ -84,16 +89,18 @@ image. IPv6 ULA clients are also included.
 The following address classes are deliberately not accepted as LAN policy:
 
 - public and default routes such as `0.0.0.0/0` and `::/0`;
-- IPv4 and IPv6 loopback;
+- IPv4 and IPv6 loopback (fixed health-check routes cannot be changed through
+  `NTP_ALLOW`);
 - IPv4 APIPA and IPv6 link-local;
 - `100.64.0.0/10` carrier-grade NAT space;
 - multicast;
 - documentation and benchmark networks.
 
 These ranges are non-global for different reasons, but they are not
-administrator-assigned private LAN space. Localhost can query Chrony without an
-`allow` directive, and IPv6 link-local addresses also require interface scope,
-making them a poor default client policy.
+administrator-assigned private LAN space. Chrony requires explicit NTP access
+even for localhost, which is why PPSPi renders the two fixed host routes. IPv6
+link-local addresses also require interface scope, making them a poor default
+client policy.
 
 The four-range default is convenient but intentionally broad. Operators with
 routing, VPNs, or several private network zones can optionally narrow

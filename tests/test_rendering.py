@@ -25,7 +25,9 @@ class RenderingTests(unittest.TestCase):
         self.assertIn("allow 172.16.0.0/12", rendered)
         self.assertIn("allow 192.168.0.0/16", rendered)
         self.assertIn("allow fc00::/7", rendered)
-        self.assertEqual(rendered.count("\nallow "), 4)
+        self.assertIn("allow 127.0.0.1/32", rendered)
+        self.assertIn("allow ::1/128", rendered)
+        self.assertEqual(rendered.count("\nallow "), 6)
         self.assertNotIn("allow 0/0", rendered)
         self.assertNotIn("allow fe80::/10", rendered)
 

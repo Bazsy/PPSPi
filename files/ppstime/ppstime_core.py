@@ -297,7 +297,10 @@ def render_chrony(config: Mapping[str, str]) -> str:
             "# Network time accelerates startup and remains available when GNSS is lost.",
             f"pool {config['NTP_FALLBACK_POOL']} iburst maxsources 4",
             "",
-            "# Serve only validated RFC 1918 IPv4 and RFC 4193 IPv6 ULA networks.",
+            "# Permit loopback only for the local NTP health check.",
+            "allow 127.0.0.1/32",
+            "allow ::1/128",
+            "# Serve validated RFC 1918 IPv4 and RFC 4193 IPv6 ULA networks.",
         ]
     )
     lines.extend(f"allow {cidr}" for cidr in split_cidrs(config["NTP_ALLOW"]))
@@ -559,6 +562,17 @@ def parse_chrony_clients(text: str) -> int:
         if in_rows and line.strip() and len(line.split()) >= 6:
             count += 1
     return count
+
+
+def parse_ss_udp_listener(text: str, *, port: int) -> bool:
+    """Return whether numeric `ss -H -l -u -n` output has a local UDP port."""
+
+    suffix = f":{port}"
+    for line in text.splitlines():
+        columns = line.split()
+        if len(columns) >= 4 and columns[3].endswith(suffix):
+            return True
+    return False
 
 
 def parse_gpsd_json(text: str, *, device: str | None = None) -> dict[str, Any]:

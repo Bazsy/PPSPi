@@ -13,7 +13,13 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ppstime_core import ConfigError, parse_env_file, run_command, validate_config
+from ppstime_core import (
+    ConfigError,
+    parse_env_file,
+    parse_ss_udp_listener,
+    run_command,
+    validate_config,
+)
 
 
 @dataclass(frozen=True)
@@ -26,9 +32,7 @@ class Check:
 
 def port_123_listening() -> bool:
     result = run_command(["ss", "-H", "-l", "-u", "-n"], timeout=5)
-    return result.returncode == 0 and any(
-        line.split()[4].endswith(":123") for line in result.stdout.splitlines() if len(line.split()) >= 5
-    )
+    return result.returncode == 0 and parse_ss_udp_listener(result.stdout, port=123)
 
 
 def query_local_ntp() -> bool:

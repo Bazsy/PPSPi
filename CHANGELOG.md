@@ -47,6 +47,9 @@ All notable changes are documented here. PPSPi follows
 
 ### Fixed
 
+- correctly inspect the local endpoint in `ss` output when validating UDP/123,
+  and permit exact IPv4/IPv6 loopback host routes so the deep local NTP query
+  tests server responses without expanding external access.
 - use GPSD 3.25's `chrony.clk.<device>.sock` coarse-clock path so Chrony receives
   GPS second labels and can lock/select direct PPS.
 - retain valid satellite counts when GPSD interleaves populated and empty SKY
