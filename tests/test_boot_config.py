@@ -28,7 +28,9 @@ class BootConfigTests(unittest.TestCase):
         self.assertEqual(once, twice)
         self.assertIn("dtparam=audio=on", once)
         self.assertEqual(once.count("dtoverlay=pps-gpio"), 1)
-        self.assertEqual(once.count("dtoverlay=i2c-rtc,rv3028"), 1)
+        self.assertEqual(
+            once.count("dtoverlay=i2c-rtc,rv3028,backup-switchover-mode=3"), 1
+        )
 
     def test_managed_block_replaces_previous_values(self) -> None:
         old_block = self.block.replace("gpiopin=18", "gpiopin=4")
@@ -48,6 +50,12 @@ class BootConfigTests(unittest.TestCase):
         self.assertIn("console=tty1", updated)
         self.assertIn("root=PARTUUID=abc", updated)
         self.assertEqual(updated.count("\n"), 1)
+
+    def test_disabled_rtc_backup_mode_omits_overlay_parameter(self) -> None:
+        config = dict(self.config, RTC_BACKUP_SWITCH_MODE="0")
+        block = render_boot_block(config)
+        self.assertIn("dtoverlay=i2c-rtc,rv3028\n", block)
+        self.assertNotIn("backup-switchover-mode", block)
 
 
 if __name__ == "__main__":

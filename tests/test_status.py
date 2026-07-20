@@ -182,7 +182,7 @@ class StatusTests(unittest.TestCase):
             boot_path.write_text(
                 "enable_uart=1\n"
                 "dtoverlay=pps-gpio,gpiopin=18\n"
-                "dtoverlay=i2c-rtc,rv3028\n",
+                "dtoverlay=i2c-rtc,rv3028,backup-switchover-mode=3\n",
                 encoding="utf-8",
             )
             process = subprocess.run(
@@ -222,7 +222,7 @@ class StatusTests(unittest.TestCase):
             boot_path.write_text(
                 "enable_uart=1\n"
                 "dtoverlay=pps-gpio,gpiopin=18\n"
-                "dtoverlay=i2c-rtc,rv3028\n",
+                "dtoverlay=i2c-rtc,rv3028,backup-switchover-mode=3\n",
                 encoding="utf-8",
             )
             process = subprocess.run(

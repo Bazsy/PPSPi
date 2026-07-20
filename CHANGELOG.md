@@ -47,6 +47,9 @@ All notable changes are documented here. PPSPi follows
 
 ### Fixed
 
+- enable RV-3028 level-switching backup mode for the Uputronics V6.0+ profile,
+  allowing its twin supercapacitors to maintain RTC time while Pi power is
+  removed; mode `0` remains available for profiles without backup power.
 - let unprivileged `ppstime-status` fall back to validated, world-readable RTC
   sysfs date/time when the root-only RTC device rejects `hwclock`, while keeping
   RTC setting and restore operations privileged.

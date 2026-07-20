@@ -25,11 +25,21 @@ revision uses the same overlay.
 | PPS | GPIO 18 | 12 | `dtoverlay=pps-gpio,gpiopin=18` | Uputronics-linked pinout and firmware overlay definition |
 | RTC I2C data | GPIO 2 / SDA1 | 3 | I2C1 | Uputronics-linked pinout |
 | RTC I2C clock | GPIO 3 / SCL1 | 5 | I2C1 | Uputronics-linked pinout |
-| RTC | I2C address `0x52` | I2C bus | `dtoverlay=i2c-rtc,rv3028` | current-board pinout and firmware overlay definition |
+| RTC | I2C address `0x52` | I2C bus | `dtoverlay=i2c-rtc,rv3028,backup-switchover-mode=3` | current-board pinout, Uputronics backup setup, and firmware overlay definition |
 
 The current board is described as using a Micro Crystal **RV-3028-C7** RTC and
 a u-blox M8-family GNSS receiver. The linked pinout identifies the u-blox device
 at I2C address `0x42`, but PPSPi uses its UART output for GPSD.
+
+The board uses two 0.2 F supercapacitors to retain GPS settings and maintain the
+RTC while Pi power is removed. Uputronics datasheet revision 6.4 references the
+RV-3028 setup that enables **level-switching backup mode**. This is register
+mode `3`, exposed by current Raspberry Pi firmware as
+`backup-switchover-mode=3`. Without it, the live RTC reports backup switch mode
+`0` (disabled), sets its power-on-reset flag after shutdown, and loses time even
+though the supercapacitors are present. The `hwclock` parameter API uses kernel
+enum values instead: `hwclock --param-get bsm` reports `0x2` for the same level
+switching mode.
 
 The Uputronics datasheet revision 6.4 (March 2026) says it applies to PCB V6.4
 and covers all versions later than V6.0. Page 2 specifies a default baud rate of
@@ -44,6 +54,8 @@ The Raspberry Pi firmware overlay documentation confirms:
 - `pps-gpio` defaults to GPIO 18 and accepts `gpiopin`,
   `assert_falling_edge`, `capture_clear`, and `pull` parameters;
 - `i2c-rtc` accepts `rv3028` for the Micro Crystal RV3028 family.
+- `i2c-rtc` accepts `backup-switchover-mode`; value `3` selects level switching
+  for RV-3028 backup power.
 
 ## Sources
 
@@ -53,6 +65,7 @@ Authoritative or manufacturer-selected references checked for this profile:
 - [Uputronics current-board datasheet](https://cdn.shopify.com/s/files/1/0835/7707/8094/files/Uputronics_Raspberry_Pi_GPS_RTC_Board_Datasheet_9eec2e77-d368-45ee-acc2-be899ff1d0be.pdf?v=1736517155)
 - [Pinout page linked by Uputronics](https://pinout.xyz/pinout/uputronics_gps_expansion_board)
 - [Official Raspberry Pi firmware overlay definitions](https://github.com/raspberrypi/firmware/blob/master/boot/overlays/README)
+- [Uputronics-referenced RV-3028 configuration](https://github.com/philrandal/gpsctl/blob/master/configure-rv3028.sh)
 - [Official Raspberry Pi `config.txt` documentation](https://www.raspberrypi.com/documentation/computers/config_txt.html)
 
 Source verification does not replace direct board identification and hardware
@@ -65,9 +78,11 @@ Before a release candidate is accepted:
 1. photograph or record the HAT revision and RTC marking;
 2. confirm the RTC appears at `0x52` with `i2cdetect -y 1`;
 3. confirm the driver reports an RV-3028 device;
-4. confirm the board's PPS trace reaches physical pin 12 / BCM GPIO 18;
-5. confirm GPSD reports 115200 bps for the serial device;
-6. run the complete [hardware acceptance plan](hardware-test-plan.md).
+4. confirm `hwclock --param-get bsm` reports kernel enum value `0x2` (level
+  switching);
+5. confirm the board's PPS trace reaches physical pin 12 / BCM GPIO 18;
+6. confirm GPSD reports 115200 bps for the serial device;
+7. run the complete [hardware acceptance plan](hardware-test-plan.md).
 
 If the physical board has another RTC, stop. Add a separately named profile
 only after finding authoritative documentation for that revision. Do not change
