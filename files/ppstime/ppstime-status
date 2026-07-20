@@ -19,6 +19,7 @@ from ppstime_core import (
     parse_gpsd_json,
     parse_key_value_output,
     parse_ppstest,
+    pps_sysfs_active,
     read_rtc_sysfs,
     run_command,
     validate_config,
@@ -72,8 +73,12 @@ def collect_status(config_path: Path, fixture_dir: Path | None = None) -> dict[s
     gps_result = fixture_or_command(
         fixture_dir, "gpspipe", ["gpspipe", "-w", "-n", "10"], timeout=8
     )
-    pps_result = fixture_or_command(
-        fixture_dir, "ppstest", ["ppstest", config["PPS_DEVICE"]], timeout=3
+    pps_result = (
+        fixture_or_command(
+            fixture_dir, "ppstest", ["ppstest", config["PPS_DEVICE"]], timeout=3
+        )
+        if fixture_dir is not None
+        else CommandResult(0, "", "")
     )
     rtc_result = fixture_or_command(
         fixture_dir,
@@ -120,6 +125,11 @@ def collect_status(config_path: Path, fixture_dir: Path | None = None) -> dict[s
         if not fixture_mode
         else fixture_devices.get("pps_device", pps_result.returncode == 0)
     )
+    pps_active = (
+        parse_ppstest(pps_result.stdout)
+        if fixture_mode
+        else pps_exists and pps_sysfs_active(config["PPS_DEVICE"])
+    )
     rtc_exists = (
         Path(config["RTC_DEVICE"]).exists()
         if not fixture_mode
@@ -141,7 +151,7 @@ def collect_status(config_path: Path, fixture_dir: Path | None = None) -> dict[s
         "pps": {
             "device": config["PPS_DEVICE"],
             "exists": pps_exists,
-            "pulses": "ACTIVE" if parse_ppstest(pps_result.stdout) else "INACTIVE",
+            "pulses": "ACTIVE" if pps_active else "INACTIVE",
         },
         "rtc": {
             "device": config["RTC_DEVICE"],

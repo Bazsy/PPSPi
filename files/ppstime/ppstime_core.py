@@ -15,6 +15,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -271,7 +272,7 @@ def render_chrony(config: Mapping[str, str]) -> str:
 
     validate_config(config)
     serial_name = Path(config["GPS_DEVICE"]).name
-    socket_path = f"/run/chrony.{serial_name}.sock"
+    socket_path = f"/run/chrony.clk.{serial_name}.sock"
     lines = [
         "# Managed by PPSPi. Local changes will be replaced by ppstime-config apply.",
         "#",
@@ -470,6 +471,40 @@ def read_rtc_sysfs(
         return CommandResult(1, "", f"cannot read RTC sysfs state: {exc}")
 
 
+def read_pps_sequence(
+    device: str | Path, *, sysfs_root: Path = Path("/sys/class/pps")
+) -> int | None:
+    """Read one Linux PPS assert sequence from world-readable sysfs."""
+
+    pps_name = Path(device).name
+    if not re.fullmatch(r"pps[0-9]+", pps_name):
+        return None
+    try:
+        assert_state = (sysfs_root / pps_name / "assert").read_text(
+            encoding="ascii"
+        )
+    except (OSError, UnicodeError):
+        return None
+    match = re.fullmatch(r"\s*[0-9]+\.[0-9]+#([0-9]+)\s*", assert_state)
+    return int(match.group(1)) if match else None
+
+
+def pps_sysfs_active(
+    device: str | Path,
+    *,
+    sysfs_root: Path = Path("/sys/class/pps"),
+    interval: float = 1.1,
+) -> bool:
+    """Return whether the PPS assert sequence changes across one pulse period."""
+
+    first = read_pps_sequence(device, sysfs_root=sysfs_root)
+    if first is None:
+        return False
+    time.sleep(interval)
+    second = read_pps_sequence(device, sysfs_root=sysfs_root)
+    return second is not None and second != first
+
+
 def parse_key_value_output(text: str) -> dict[str, str]:
     """Parse `Label : value` output used by chronyc tracking."""
 
@@ -527,21 +562,28 @@ def parse_chrony_clients(text: str) -> int:
 
 
 def parse_gpsd_json(text: str, *, device: str | None = None) -> dict[str, Any]:
-    """Return the newest TPV and SKY observations from a gpspipe JSON stream."""
+    """Return target-device TPV and best SKY observations from gpspipe JSON."""
 
     tpv: dict[str, Any] = {}
-    sky: dict[str, Any] = {}
+    satellites_used = 0
     reported_baud: int | None = None
     for line in text.splitlines():
         try:
             record = json.loads(line)
         except json.JSONDecodeError:
             continue
+        record_device = record.get("device")
+        matches_device = device is None or record_device in {None, device}
         candidate_devices: list[dict[str, Any]] = []
-        if record.get("class") == "TPV":
+        if record.get("class") == "TPV" and matches_device:
             tpv = record
-        elif record.get("class") == "SKY":
-            sky = record
+        elif record.get("class") == "SKY" and matches_device:
+            used = record.get("uSat")
+            if not isinstance(used, int):
+                used = sum(
+                    1 for satellite in record.get("satellites", []) if satellite.get("used")
+                )
+            satellites_used = max(satellites_used, used)
         elif record.get("class") == "DEVICE":
             candidate_devices = [record]
         elif record.get("class") == "DEVICES":
@@ -552,7 +594,6 @@ def parse_gpsd_json(text: str, *, device: str | None = None) -> dict[str, Any]:
                 if isinstance(baud, int):
                     reported_baud = baud
     mode = int(tpv.get("mode", 0) or 0)
-    satellites_used = sum(1 for satellite in sky.get("satellites", []) if satellite.get("used"))
     return {
         "mode": mode,
         "fix": {0: "UNKNOWN", 1: "NO FIX", 2: "2D", 3: "3D"}.get(mode, "UNKNOWN"),

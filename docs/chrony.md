@@ -6,7 +6,7 @@ PPSPi generates a fragment in `/etc/chrony/conf.d/ppstime.conf`. The essential
 shape is:
 
 ```text
-refclock SOCK /run/chrony.serial0.sock refid GPS ... noselect
+refclock SOCK /run/chrony.clk.serial0.sock refid GPS ... noselect
 refclock PPS /dev/pps0 refid PPS lock GPS poll 0 dpoll 0 prefer ...
 pool pool.ntp.org iburst maxsources 4
 allow 10.0.0.0/8
@@ -22,7 +22,11 @@ not edit it directly; use `ppstime-config`.
 
 GPSD sends serial-derived samples to the Unix datagram socket that Chrony
 creates for the basename of the GPS device. `/dev/serial0` therefore maps to
-`/run/chrony.serial0.sock`.
+`/run/chrony.clk.serial0.sock`.
+
+GPSD may separately create `/run/chrony.serial0.sock` for its own PPS
+compatibility output. PPSPi does not use that socket: Chrony reads the kernel
+PPS device directly for the precision source.
 
 The source has:
 
