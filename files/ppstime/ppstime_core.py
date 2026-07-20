@@ -44,6 +44,8 @@ CONFIG_KEYS = frozenset(
         "NTP_ALLOW",
         "NTP_FALLBACK_POOL",
         "CHRONY_GPS_OFFSET",
+        "CHRONY_MAX_CLOCK_ERROR_PPM",
+        "CHRONY_MAX_DISTANCE",
         "CHRONY_ENABLED",
         "SSH_ENABLED",
         "DEFAULT_HOSTNAME",
@@ -239,6 +241,18 @@ def validate_config(config: Mapping[str, str]) -> None:
         raise ConfigError("CHRONY_GPS_OFFSET must be numeric") from exc
     if not math.isfinite(offset) or not -1.0 <= offset <= 1.0:
         raise ConfigError("CHRONY_GPS_OFFSET must be between -1.0 and 1.0 seconds")
+    try:
+        max_clock_error = float(config["CHRONY_MAX_CLOCK_ERROR_PPM"])
+    except ValueError as exc:
+        raise ConfigError("CHRONY_MAX_CLOCK_ERROR_PPM must be numeric") from exc
+    if not math.isfinite(max_clock_error) or not 1.0 <= max_clock_error <= 1000.0:
+        raise ConfigError("CHRONY_MAX_CLOCK_ERROR_PPM must be between 1 and 1000")
+    try:
+        max_distance = float(config["CHRONY_MAX_DISTANCE"])
+    except ValueError as exc:
+        raise ConfigError("CHRONY_MAX_DISTANCE must be numeric") from exc
+    if not math.isfinite(max_distance) or not 0.01 <= max_distance <= 1.0:
+        raise ConfigError("CHRONY_MAX_DISTANCE must be between 0.01 and 1.0 seconds")
     if not HOSTNAME_RE.fullmatch(config["DEFAULT_HOSTNAME"]):
         raise ConfigError("DEFAULT_HOSTNAME must be a valid hostname")
     try:
@@ -289,13 +303,18 @@ def render_chrony(config: Mapping[str, str]) -> str:
     if config["PPS_ASSERT_EDGE"] == "falling":
         pps_parameter += ":clear"
     lines.append(
-        f"refclock PPS {pps_parameter} refid PPS lock GPS poll 0 dpoll 0 prefer precision 1e-7"
+        f"refclock PPS {pps_parameter} refid PPS lock GPS poll 0 dpoll 0 precision 1e-7"
     )
     lines.extend(
         [
             "",
             "# Network time accelerates startup and remains available when GNSS is lost.",
             f"pool {config['NTP_FALLBACK_POOL']} iburst maxsources 4",
+            "",
+            "# Bound stale-source confidence. Healthy PPS wins naturally through its",
+            "# much shorter root distance; stopped PPS yields to fresh network time.",
+            f"maxclockerror {config['CHRONY_MAX_CLOCK_ERROR_PPM']}",
+            f"maxdistance {config['CHRONY_MAX_DISTANCE']}",
             "",
             "# Permit loopback only for the local NTP health check.",
             "allow 127.0.0.1/32",
