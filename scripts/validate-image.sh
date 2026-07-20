@@ -87,6 +87,8 @@ sudo grep -qx \
 sudo grep -Fq \
     'refclock SOCK /run/chrony.clk.serial0.sock refid GPS' \
     "${root_mount}/etc/chrony/conf.d/ppstime.conf"
+sudo grep -Fxq 'allow 127.0.0.1/32' "${root_mount}/etc/chrony/conf.d/ppstime.conf"
+sudo grep -Fxq 'allow ::1/128' "${root_mount}/etc/chrony/conf.d/ppstime.conf"
 sudo grep -q 'GPSD_OPTIONS="-n -s 115200"' "${root_mount}/etc/default/gpsd"
 
 ssh_state="$(sudo systemctl --root="${root_mount}" is-enabled ssh.service 2> /dev/null || true)"

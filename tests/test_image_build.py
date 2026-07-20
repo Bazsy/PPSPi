@@ -84,6 +84,8 @@ class ImageBuildTests(unittest.TestCase):
             "refclock SOCK /run/chrony.clk.serial0.sock refid GPS",
             image_validator,
         )
+        self.assertIn("allow 127.0.0.1/32", image_validator)
+        self.assertIn("allow ::1/128", image_validator)
 
     def test_selector_ignores_intermediate_lite_image(self) -> None:
         selector = load_selector()

@@ -15,6 +15,7 @@ from ppstime_core import (
     parse_chrony_sources,
     parse_gpsd_json,
     parse_ppstest,
+    parse_ss_udp_listener,
     pps_sysfs_active,
     read_pps_sequence,
 )
@@ -85,6 +86,19 @@ class ParserTests(unittest.TestCase):
             self.assertFalse(
                 pps_sysfs_active("/dev/not-pps", sysfs_root=Path(temporary))
             )
+
+    def test_udp_listener_uses_ss_local_endpoint(self) -> None:
+        output = (
+            "UNCONN 0 0 0.0.0.0:123 0.0.0.0:*\n"
+            "UNCONN 0 0 [::]:123 [::]:*\n"
+            "UNCONN 0 0 0.0.0.0:323 0.0.0.0:*\n"
+        )
+        self.assertTrue(parse_ss_udp_listener(output, port=123))
+        self.assertTrue(parse_ss_udp_listener(output, port=323))
+        self.assertFalse(parse_ss_udp_listener(output, port=9999))
+        self.assertFalse(
+            parse_ss_udp_listener("UNCONN 0 0 0.0.0.0:* 127.0.0.1:123\n", port=123)
+        )
 
 
 if __name__ == "__main__":
