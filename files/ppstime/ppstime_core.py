@@ -38,6 +38,7 @@ CONFIG_KEYS = frozenset(
         "PPS_ASSERT_EDGE",
         "RTC_ENABLED",
         "RTC_OVERLAY",
+        "RTC_BACKUP_SWITCH_MODE",
         "RTC_DEVICE",
         "NTP_ALLOW",
         "NTP_FALLBACK_POOL",
@@ -203,6 +204,14 @@ def validate_config(config: Mapping[str, str]) -> None:
         raise ConfigError("PPS_ASSERT_EDGE must be rising or falling")
     if not SAFE_NAME_RE.fullmatch(config["RTC_OVERLAY"]):
         raise ConfigError("RTC_OVERLAY contains unsafe characters")
+    try:
+        rtc_backup_switch_mode = int(config["RTC_BACKUP_SWITCH_MODE"])
+    except ValueError as exc:
+        raise ConfigError("RTC_BACKUP_SWITCH_MODE must be an integer") from exc
+    if rtc_backup_switch_mode not in {0, 1, 2, 3}:
+        raise ConfigError("RTC_BACKUP_SWITCH_MODE must be between 0 and 3")
+    if rtc_backup_switch_mode != 0 and config["RTC_OVERLAY"] != "rv3028":
+        raise ConfigError("RTC_BACKUP_SWITCH_MODE is supported only by the rv3028 overlay")
     if config["GPSD_OPTIONS"] != "-n":
         raise ConfigError("GPSD_OPTIONS must be -n for reliable unattended time service")
 
@@ -338,7 +347,10 @@ def render_boot_block(config: Mapping[str, str]) -> str:
         pps_overlay,
     ]
     if config["RTC_ENABLED"] == "true":
-        lines.append(f"dtoverlay=i2c-rtc,{config['RTC_OVERLAY']}")
+        rtc_overlay = f"dtoverlay=i2c-rtc,{config['RTC_OVERLAY']}"
+        if config["RTC_BACKUP_SWITCH_MODE"] != "0":
+            rtc_overlay += f",backup-switchover-mode={config['RTC_BACKUP_SWITCH_MODE']}"
+        lines.append(rtc_overlay)
     lines.append("# END PPSPi managed configuration")
     return "\n".join(lines)
 

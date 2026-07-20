@@ -153,9 +153,22 @@ systemctl status ppstime-rtc-restore.service
 ```
 
 The current board should appear at `0x52` and use
-`dtoverlay=i2c-rtc,rv3028`. `UU` in `i2cdetect` can mean the kernel driver owns
-the address. A different address or chip marking may indicate an older HAT
-revision; identify it instead of trying arbitrary overlays.
+`dtoverlay=i2c-rtc,rv3028,backup-switchover-mode=3`. `UU` in `i2cdetect` can mean
+the kernel driver owns the address. A different address or chip marking may
+indicate an older HAT revision; identify it instead of trying arbitrary
+overlays.
+
+If the RTC loses time whenever Pi power is removed, inspect the RV-3028 backup
+switch mode:
+
+```console
+sudo hwclock --param-get bsm --rtc /dev/rtc0
+```
+
+The Uputronics V6.0+ overlay profile requires raw mode `3` (level switching).
+The `hwclock` ioctl uses a different kernel enum and reports that same mode as
+`0x2`. A reported value of `0x0` means backup power is disabled even when the
+board's supercapacitors are charged.
 
 If the restore journal reports that `hwclock` is missing, install
 `util-linux-extra`. If `/dev/rtc0` exists but `/dev/i2c-1` does not, load

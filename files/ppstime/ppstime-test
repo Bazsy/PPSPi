@@ -105,7 +105,10 @@ def main() -> int:
         f"dtoverlay=pps-gpio,gpiopin={config['PPS_GPIO']}",
     ]
     if config["RTC_ENABLED"] == "true":
-        required_boot_lines.append(f"dtoverlay=i2c-rtc,{config['RTC_OVERLAY']}")
+        rtc_overlay = f"dtoverlay=i2c-rtc,{config['RTC_OVERLAY']}"
+        if config["RTC_BACKUP_SWITCH_MODE"] != "0":
+            rtc_overlay += f",backup-switchover-mode={config['RTC_BACKUP_SWITCH_MODE']}"
+        required_boot_lines.append(rtc_overlay)
     boot_ok = all(line in boot_text for line in required_boot_lines)
     checks.append(Check("boot_configuration", "PASS" if boot_ok else "FAIL", str(boot_path or "not found")))
 

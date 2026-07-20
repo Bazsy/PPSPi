@@ -26,6 +26,7 @@ class ConfigTests(unittest.TestCase):
     def test_uputronics_values_are_source_verified_defaults(self) -> None:
         self.assertEqual(self.config["PPS_GPIO"], "18")
         self.assertEqual(self.config["RTC_OVERLAY"], "rv3028")
+        self.assertEqual(self.config["RTC_BACKUP_SWITCH_MODE"], "3")
         self.assertEqual(self.config["GPS_DEVICE"], "/dev/serial0")
         self.assertEqual(self.config["GPS_BAUD"], "115200")
         self.assertEqual(self.config["PPS_ASSERT_EDGE"], "rising")
@@ -92,6 +93,20 @@ class ConfigTests(unittest.TestCase):
     def test_rejects_device_path_traversal(self) -> None:
         with self.assertRaises(ConfigError):
             validate_config(dict(self.config, GPS_DEVICE="/dev/../etc/shadow"))
+
+    def test_rejects_invalid_rtc_backup_switch_modes(self) -> None:
+        for value in ("-1", "4", "level", "3.0"):
+            with self.subTest(value=value), self.assertRaises(ConfigError):
+                validate_config(dict(self.config, RTC_BACKUP_SWITCH_MODE=value))
+
+        for value in ("0", "1", "2", "3"):
+            with self.subTest(value=value):
+                validate_config(dict(self.config, RTC_BACKUP_SWITCH_MODE=value))
+
+        with self.assertRaises(ConfigError):
+            validate_config(
+                dict(self.config, RTC_OVERLAY="ds3231", RTC_BACKUP_SWITCH_MODE="3")
+            )
 
     def test_rejects_unknown_and_duplicate_keys(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

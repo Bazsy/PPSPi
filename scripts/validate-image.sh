@@ -80,6 +80,9 @@ sudo jq -e \
     "${root_mount}/etc/ppstime/build-info.json" > /dev/null
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-status" ]]
 [[ "$(sudo stat -c '%a' "${root_mount}/etc/ppstime/ppstime.env")" == "644" ]]
+sudo grep -qx \
+    'dtoverlay=i2c-rtc,rv3028,backup-switchover-mode=3' \
+    "${root_mount}/boot/firmware/config.txt"
 [[ -f "${root_mount}/etc/chrony/conf.d/ppstime.conf" ]]
 sudo grep -q 'GPSD_OPTIONS="-n -s 115200"' "${root_mount}/etc/default/gpsd"
 
