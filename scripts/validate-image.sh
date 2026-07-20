@@ -87,6 +87,11 @@ sudo grep -qx \
 sudo grep -Fq \
     'refclock SOCK /run/chrony.clk.serial0.sock refid GPS' \
     "${root_mount}/etc/chrony/conf.d/ppstime.conf"
+sudo grep -Fxq \
+    'refclock PPS /dev/pps0 refid PPS lock GPS poll 0 dpoll 0 precision 1e-7' \
+    "${root_mount}/etc/chrony/conf.d/ppstime.conf"
+sudo grep -Fxq 'maxclockerror 200' "${root_mount}/etc/chrony/conf.d/ppstime.conf"
+sudo grep -Fxq 'maxdistance 0.1' "${root_mount}/etc/chrony/conf.d/ppstime.conf"
 sudo grep -Fxq 'allow 127.0.0.1/32' "${root_mount}/etc/chrony/conf.d/ppstime.conf"
 sudo grep -Fxq 'allow ::1/128' "${root_mount}/etc/chrony/conf.d/ppstime.conf"
 sudo grep -q 'GPSD_OPTIONS="-n -s 115200"' "${root_mount}/etc/default/gpsd"

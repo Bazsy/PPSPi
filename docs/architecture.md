@@ -87,8 +87,10 @@ seconds for serial and PPS devices, then systemd's bounded restart policy retrie
 after transient failures. There are no arbitrary long startup sleeps.
 
 The health check reports state to the journal and always exits successfully. A
-normal antenna outage therefore cannot create a service restart storm. The RTC
-save command silently defers writes while Chrony is unsynchronized.
+normal antenna outage therefore cannot create a service restart storm. Chrony's
+bounded root-distance policy ages stopped PPS naturally and selects fresh
+network time without a watchdog modifying source state. The RTC save command
+silently defers writes while Chrony is unsynchronized.
 
 ## Trust and failure behavior
 

@@ -7,8 +7,10 @@ shape is:
 
 ```text
 refclock SOCK /run/chrony.clk.serial0.sock refid GPS ... noselect
-refclock PPS /dev/pps0 refid PPS lock GPS poll 0 dpoll 0 prefer ...
+refclock PPS /dev/pps0 refid PPS lock GPS poll 0 dpoll 0 ...
 pool pool.ntp.org iburst maxsources 4
+maxclockerror 200
+maxdistance 0.1
 allow 10.0.0.0/8
 allow 172.16.0.0/12
 allow 192.168.0.0/16
@@ -53,8 +55,9 @@ edge, in which case both the kernel overlay and Chrony use their falling-edge
 options.
 
 `poll 0` processes one-second groups, `dpoll 0` matches the one-hertz pulse,
-`precision 1e-7` advertises a conservative sub-microsecond source precision,
-and `prefer` keeps a valid PPS source ahead of network sources.
+and `precision 1e-7` advertises a conservative sub-microsecond source
+precision. Healthy PPS naturally has a much shorter root distance than network
+sources and does not need an unconditional `prefer` option.
 
 PPS alone is not usable after a large clock error because it cannot distinguish
 one second from another. The GPS lock provides that identity.
@@ -66,10 +69,28 @@ one second from another. The GPS lock provides that identity.
 - initialize a system before GNSS lock;
 - provide independent sanity references;
 - take over during antenna or receiver failure;
-- remain lower preference than healthy PPS.
+- remain less attractive than healthy PPS through normal root-distance
+  selection.
 
 The default is `pool.ntp.org`; regional or organizational pools can be selected
 through the profile. Public sources are clients of PPSPi, not LAN access rules.
+
+Chrony can retain the last estimate from a stopped preferred refclock for a long
+time. PPSPi therefore sets `CHRONY_MAX_CLOCK_ERROR_PPM=200` and
+`CHRONY_MAX_DISTANCE=0.1`, while deliberately not marking PPS `prefer`. The
+first setting makes uncertainty grow conservatively when updates stop; the
+second rejects a source after its root distance exceeds 100 milliseconds. The
+worst-case stale-source eligibility bound from these configured values is:
+
+$$
+t_{max} = \frac{0.1}{200 \times 10^{-6}} = 500\text{ seconds}
+$$
+
+With reachable network sources, fallback normally happens sooner when their
+root distance becomes lower than the aging PPS estimate. The 100-millisecond
+limit still admits realistic Internet fallback sources while preventing stale
+PPS from advertising Stratum 1 indefinitely. Both values are strictly
+validated; change them only with measured source distances and oscillator data.
 
 ## Serving the LAN
 

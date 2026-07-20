@@ -84,6 +84,12 @@ class ImageBuildTests(unittest.TestCase):
             "refclock SOCK /run/chrony.clk.serial0.sock refid GPS",
             image_validator,
         )
+        self.assertIn(
+            "refclock PPS /dev/pps0 refid PPS lock GPS poll 0 dpoll 0 precision 1e-7",
+            image_validator,
+        )
+        self.assertIn("maxclockerror 200", image_validator)
+        self.assertIn("maxdistance 0.1", image_validator)
         self.assertIn("allow 127.0.0.1/32", image_validator)
         self.assertIn("allow ::1/128", image_validator)
 

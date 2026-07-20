@@ -204,6 +204,12 @@ is selectable and whether `GPS` is visible as a `noselect` source.
 Network fallback is a feature. It becomes a fault only when healthy GPS/PPS
 never regain selection after sufficient settling time.
 
+If PPS remains selected with reach `0` and an old `LastRx`, verify the generated
+configuration does not mark PPS `prefer` and contains `maxclockerror 200` plus
+`maxdistance 0.1`. Older candidates can retain a stale preferred PPS estimate
+for an excessive period even though pulses stopped. Do not restart services to
+hide the behavior; update PPSPi and repeat the antenna-loss test.
+
 ## LAN clients cannot query
 
 Check listening sockets, allow rules, and client addressing:

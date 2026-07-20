@@ -36,6 +36,8 @@ class ConfigTests(unittest.TestCase):
             self.config["NTP_ALLOW"],
             "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7",
         )
+        self.assertEqual(self.config["CHRONY_MAX_CLOCK_ERROR_PPM"], "200")
+        self.assertEqual(self.config["CHRONY_MAX_DISTANCE"], "0.1")
 
     def test_active_configuration_has_no_secret_keys(self) -> None:
         sensitive = ("PASSWORD", "SECRET", "TOKEN", "PRIVATE", "WIFI", "SSID", "KEY")
@@ -84,6 +86,16 @@ class ConfigTests(unittest.TestCase):
                 self.assertFalse(math.isfinite(float(value)))
                 with self.assertRaises(ConfigError):
                     validate_config(dict(self.config, CHRONY_GPS_OFFSET=value))
+
+    def test_rejects_unsafe_chrony_fallback_bounds(self) -> None:
+        cases = {
+            "CHRONY_MAX_CLOCK_ERROR_PPM": ("0", "1001", "nan", "not-a-number"),
+            "CHRONY_MAX_DISTANCE": ("0", "0.009", "1.1", "inf"),
+        }
+        for key, values in cases.items():
+            for value in values:
+                with self.subTest(key=key, value=value), self.assertRaises(ConfigError):
+                    validate_config(dict(self.config, **{key: value}))
 
     def test_rejects_baud_rates_not_supported_by_gpsd(self) -> None:
         for value in ("1200", "14400", "115201", "921600"):

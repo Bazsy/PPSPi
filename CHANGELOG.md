@@ -47,6 +47,9 @@ All notable changes are documented here. PPSPi follows
 
 ### Fixed
 
+- bound stale PPS selection after antenna loss by removing unconditional
+  preference and configuring conservative clock-error and root-distance limits;
+  healthy PPS still wins naturally while fresh network time can take over.
 - correctly inspect the local endpoint in `ss` output when validating UDP/123,
   and permit exact IPv4/IPv6 loopback host routes so the deep local NTP query
   tests server responses without expanding external access.
