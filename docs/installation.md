@@ -8,7 +8,8 @@ into a PPSPi appliance. For downloadable images, use the supported
 
 - Raspberry Pi 4 Model B;
 - Uputronics GPS/RTC Expansion Board V6.0+ with RV-3028-C7 RTC;
-- active antenna connected before power-on;
+- weather-appropriate active antenna connected before power-on and placed
+  outside with a broad sky view for continuous service;
 - wired Ethernet;
 - Raspberry Pi OS Lite 64-bit Trixie;
 - an initial user with `sudo` access;
@@ -16,6 +17,14 @@ into a PPSPi appliance. For downloadable images, use the supported
 
 Identify older HAT revisions before installation. Do not assume their RTC is
 compatible with the current profile; see [hardware](hardware.md).
+
+Do not treat an indoor window as equivalent to open sky. Modern low-E or
+metallized glazing, rooflines, buildings, and foliage can leave many satellites
+visible while too few have usable signal for a stable 3D fix and continuous
+PPS. A permanent installation should keep the antenna outside and use a suitable
+weatherproof cable entry or flat coaxial window feedthrough when drilling is not
+appropriate. Follow local lightning, surge-protection, and building rules for
+outdoor antenna cabling.
 
 ## Prepare Raspberry Pi OS
 
@@ -122,8 +131,11 @@ chronyc sources -v
 ```
 
 Expected devices are `/dev/serial0`, `/dev/pps0`, and `/dev/rtc0`. An outdoor
-antenna may need several minutes for a cold fix. `ppstime-test` intentionally
-returns non-zero while essential timing components are unavailable.
+antenna may need several minutes for a cold fix. Before unattended operation,
+confirm a stable 3D fix, multiple satellites used, continuous one-second PPS
+events, and `#* PPS` in Chrony. A large visible-satellite count alone does not
+prove sufficient signal or geometry. `ppstime-test` intentionally returns
+non-zero while essential timing components are unavailable.
 
 Optionally narrow NTP access to the actual LAN when the broader private-range
 default is not desired:

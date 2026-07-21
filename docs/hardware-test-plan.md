@@ -155,6 +155,23 @@ Do not claim nanosecond or microsecond accuracy from Chrony's printed precision
 alone. Measurement requires an independent traceable reference and a documented
 method.
 
+Analyze a completed PPSPi observation directory reproducibly with:
+
+```console
+python3 scripts/analyze-observation.py /path/to/ppstime-observation
+python3 scripts/analyze-observation.py --json /path/to/ppstime-observation \
+  > observation-summary.json
+python3 scripts/analyze-observation.py --strict /path/to/ppstime-observation
+```
+
+The analyzer reports duration and sample coverage, PPS/source availability,
+system and PPS offset statistics, root dispersion, frequency/skew, temperature,
+GNSS quality, service restarts, failed units, throttling, and source
+transitions. `--strict` returns non-zero unless a completed observation has at
+least 24 hours of data and no detected operational anomaly. Review the raw log
+and environmental context as well; automated analysis does not create an
+independent accuracy reference.
+
 ## Pass criteria
 
 The release gate passes only when every applicable check passes on the target

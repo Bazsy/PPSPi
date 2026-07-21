@@ -11,6 +11,19 @@ The initial profile targets:
 - Ethernet;
 - Raspberry Pi OS Lite 64-bit Trixie.
 
+Physical acceptance used a Uputronics board visibly marked **Rev 6.4**. Its
+measured UART, PPS, RTC, backup-power, and cold-restore behavior matches the
+current-board documentation below.
+
+Continuous Stratum-1 service requires an external antenna with a broad sky
+view. An indoor south-facing window in forest surroundings worked for hours but
+later degraded to marginal 2D/no-fix operation and intermittent PPS as satellite
+geometry changed. The same antenna on an open-sky metal roof immediately
+produced stable 3D fixes, substantially better dilution, and continuous PPS.
+Modern low-E or metallized glazing, buildings, rooflines, foliage, multipath,
+and nearby electronics can all reduce usable signal even when many satellites
+are listed as visible.
+
 The Uputronics product description says the current board works with Raspberry
 Pi boards using the 2x20 header and is backward-compatible with previous GPS
 boards. PPSPi does **not** interpret that statement as proof that every older RTC

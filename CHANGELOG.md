@@ -16,6 +16,7 @@ v0.1.0 but remain unreleased until the hardware report is approved.
 - human-readable and JSON status output;
 - deep installation tests and sanitised diagnostic bundles;
 - fixture-based tests for healthy and degraded timing states;
+- standard-library analyzer for 24-hour observation metrics and anomalies;
 - pinned pi-gen Trixie arm64 image build;
 - separate lint, test, manual image, and explicitly published release workflows;
 - user, developer, hardware, troubleshooting, and release documentation.
