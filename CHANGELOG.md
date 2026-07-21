@@ -42,6 +42,8 @@ v0.1.0 but remain unreleased until the hardware report is approved.
 - generate Raspberry Pi Imager 2.x manifests with `cloudinit-rpi`, Pi 4-only
   device metadata, versioned release URLs, and compressed/extracted SHA-256 and
   size values.
+- validate the rebuilt image and exact four-asset publication contract before
+  a published GitHub Release receives any files.
 - document the supported release/local manifest paths and a secure manual
   cloud-init boot-partition fallback; **Use custom** remains intentionally
   unsuitable for Trixie customisation in Imager 2.x.

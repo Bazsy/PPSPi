@@ -171,6 +171,12 @@ class ImageBuildTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("binfmt-support qemu-user-binfmt", workflow)
+        self.assertIn("types: [published]", workflow)
+        self.assertNotIn("workflow_dispatch:", workflow)
+        self.assertNotIn("pull_request:", workflow)
+        self.assertNotIn("push:", workflow)
+        self.assertIn("permissions:\n  contents: write", workflow)
+        self.assertIn("environment: release", workflow)
         self.assertIn(
             "docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8",
             workflow,
@@ -178,6 +184,21 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("/proc/sys/fs/binfmt_misc/qemu-aarch64", workflow)
         self.assertIn("releases/download/${TAG_NAME}/ppspi-${VERSION}", workflow)
         self.assertIn('--image-url "${image_url}"', workflow)
+        image_validation = "./scripts/validate-image.sh artifacts/*.img.xz"
+        asset_validation = "python3 scripts/validate-release-assets.py"
+        upload = 'gh release upload "${TAG_NAME}"'
+        self.assertIn(image_validation, workflow)
+        self.assertIn(asset_validation, workflow)
+        self.assertNotIn('gh release upload "${TAG_NAME}" artifacts/*', workflow)
+        for asset in (
+            "ppspi-${VERSION}-raspios-trixie-arm64.img.xz",
+            "ppspi-${VERSION}-raspios-trixie-arm64.img.xz.sha256",
+            "build-info.json",
+            "ppspi-${VERSION}-raspios-trixie-arm64.rpi-imager-manifest",
+        ):
+            self.assertIn(f'"artifacts/{asset}"', workflow)
+        self.assertLess(workflow.index(image_validation), workflow.index(asset_validation))
+        self.assertLess(workflow.index(asset_validation), workflow.index(upload))
 
 
 if __name__ == "__main__":

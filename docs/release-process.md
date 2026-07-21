@@ -94,7 +94,9 @@ After merging the version pull request and verifying the target commit:
 
 Only the `release.published` event starts **Attach release image**. The workflow
 checks out the tag, validates tag and `VERSION`, repeats static tests, rebuilds
-from the tagged source, and attaches:
+from the tagged source, runs the same read-only image inspection used for test
+images, validates the exact release filenames/checksum/build metadata/manifest,
+and explicitly attaches only:
 
 - `ppspi-<version>-raspios-trixie-arm64.img.xz`;
 - its `.sha256` file;
