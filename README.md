@@ -11,9 +11,10 @@ while staying close to the standard Raspberry Pi OS appliance model.
 
 > [!IMPORTANT]
 > PPSPi is pre-release software. The configuration is source-verified for the
-> Uputronics GPS/RTC Expansion Board V6.0+, but the complete Raspberry Pi 4
-> hardware acceptance plan has not yet been executed. Do not use it as a sole
-> production time source until a release includes a completed hardware report.
+> Uputronics GPS/RTC Expansion Board V6.0+. Operational Raspberry Pi 4 hardware
+> checks are complete or explicitly scope-waived, but the final open-sky timing
+> observation and release report are still in progress. Do not use it as a sole
+> production time source until a release includes an approved hardware report.
 
 ## Supported hardware
 
@@ -101,9 +102,11 @@ serves every standard private LAN range:
 - `192.168.0.0/16`;
 - `fc00::/7` (IPv6 Unique Local Addresses).
 
-This includes `192.168.1.0/24`. Public, loopback, link-local, CGNAT, multicast,
-and documentation/test ranges are not accepted. You can optionally narrow
-access to the subnet or subnets actually routed to the Pi:
+This includes `192.168.1.0/24`. User-configured public, loopback, link-local,
+CGNAT, multicast, and documentation/test ranges are not accepted. PPSPi renders
+only the exact IPv4/IPv6 loopback host routes needed by its local NTP health
+query. You can optionally narrow access to the subnet or subnets actually routed
+to the Pi:
 
 ```console
 sudo ppstime-config set NTP_ALLOW 192.168.1.0/24
@@ -214,10 +217,14 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 
 ## Known limitations
 
-- Real Pi 4/Uputronics acceptance testing is still required.
+- Final 24-hour open-sky observation and release approval are still pending; see
+  the [in-progress hardware report](docs/hardware-test-report-v0.1.0.md).
 - Older Uputronics board revisions may use a different RTC and are not assumed
   compatible without identification.
 - Only Raspberry Pi 4 Model B is accepted by the initial profile.
+- Continuous Stratum-1 operation requires a stable, broad sky view. A modern
+  low-E window or obstructed forest view can show many satellites while yielding
+  too few usable signals for a reliable fix/PPS output.
 - The broad private-LAN default can be narrowed when the routed client subnets
   are known.
 - GPS serial latency correction defaults to zero and requires measurement before
@@ -234,6 +241,8 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - [Diagnostics](docs/diagnostics.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Hardware acceptance plan](docs/hardware-test-plan.md)
+- [v0.1.0 hardware report](docs/hardware-test-report-v0.1.0.md)
+- [v0.1.0 release readiness](docs/release-readiness-v0.1.0.md)
 - [Development](docs/development.md)
 - [Release process](docs/release-process.md)
 

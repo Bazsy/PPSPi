@@ -22,8 +22,12 @@ location in a public report.
 
 ## Acceptance checks
 
-For every check record **PASS**, **FAIL**, or **BLOCKED**, evidence, timestamp,
-and notes. `BLOCKED` does not count as release acceptance.
+For every check record **PASS**, **FAIL**, **BLOCKED**, or **WAIVED**, evidence,
+timestamp, and notes. `BLOCKED` does not count as release acceptance. `WAIVED`
+is not a measured pass and is allowed only when a maintainer documents why a
+test is not applicable to the declared deployment, which compensating controls
+were reviewed, and why the remaining risk is accepted. A waiver must remain
+visible in the final report and release decision.
 
 ### 1. Fresh image boots
 
@@ -102,6 +106,13 @@ From an address inside `NTP_ALLOW`, query UDP 123 and record offset/stratum.
 From a routed address outside `NTP_ALLOW`, verify no NTP response. Confirm this
 is Chrony access control, not only an intervening firewall.
 
+When the declared deployment intentionally allows every routed private network,
+has no public exposure, and has no out-of-scope routed client, a maintainer may
+record this check as **WAIVED** instead of constructing an artificial network.
+The report must still verify strict configuration rejection of public/default
+CIDRs, record the absence of public forwarding, and state explicitly that no
+denied-client measurement was performed.
+
 ### 16. Antenna removal causes graceful fallback
 
 Remove or shield the antenna. Record loss detection, no service crash/restart
@@ -146,6 +157,8 @@ method.
 
 ## Pass criteria
 
-The release gate passes only when all 20 checks pass on the target hardware,
+The release gate passes only when every applicable check passes on the target
+hardware, every non-applicable check has an explicitly approved **WAIVED** entry,
 the observation window has no unexplained timing steps or service failures, and
-the report identifies the exact public artifact candidate.
+the report identifies the exact public artifact candidate. A waiver reduces
+test coverage and must never be summarized as a pass.

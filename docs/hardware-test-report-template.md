@@ -57,7 +57,9 @@ Status: **NOT RUN**
 | 19 | Reboot persistence | NOT RUN | |
 | 20 | Sanitized diagnostics | NOT RUN | |
 
-Use only `PASS`, `FAIL`, or `BLOCKED` in the final report.
+Use only `PASS`, `FAIL`, `BLOCKED`, or `WAIVED` in the final report. A waiver is
+not a measured pass and requires an explicit deployment-scope rationale,
+compensating controls, and maintainer risk acceptance.
 
 ## Timing observation
 
@@ -87,7 +89,8 @@ deviation from the documented procedure. Link issues for unresolved items.
 - [ ] The SSH password was strong and unique, and TCP port 22 was not exposed
   outside the trusted private LAN.
 - [ ] The chosen hostname, account, locale, timezone, and SSH policy were applied.
-- [ ] NTP allowed and denied network tests behaved correctly.
+- [ ] NTP allowed/denied policy was measured, or any non-applicable denied-client
+  test has an explicit `WAIVED` entry and approved risk rationale.
 - [ ] Diagnostics were inspected and sanitised.
 - [ ] Public report contains no private site or device information.
 

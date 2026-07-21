@@ -5,6 +5,9 @@ All notable changes are documented here. PPSPi follows
 
 ## Unreleased
 
+Release preparation remains in progress. The entries below are intended for
+v0.1.0 but remain unreleased until the hardware report is approved.
+
 ### Added
 
 - strict environment-style Uputronics hardware profile;
@@ -91,7 +94,5 @@ All notable changes are documented here. PPSPi follows
 - locked pi-gen build account and SSH-off image default;
 - explicit release publication gate and pinned GitHub Actions.
 
-## 0.1.0 - Unreleased
-
-Planned first milestone. It must not be dated or published until the Raspberry
-Pi 4 and Uputronics hardware acceptance report is complete.
+Release gates and pending evidence are tracked in
+[`docs/release-readiness-v0.1.0.md`](docs/release-readiness-v0.1.0.md).
