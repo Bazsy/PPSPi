@@ -84,8 +84,30 @@ jobs:
             --output-dir artifacts \
             --image-url "${image_url}"
 
+      - name: Validate built release image
+        run: ./scripts/validate-image.sh artifacts/*.img.xz
+
+      - name: Validate exact release assets
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          python3 scripts/validate-release-assets.py \
+            --directory artifacts \
+            --version "${VERSION}" \
+            --tag "${TAG_NAME}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --expected-commit "$(git rev-parse HEAD)"
+
       - name: Attach assets to the published GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.event.release.tag_name }}
-        run: gh release upload "${TAG_NAME}" artifacts/* --clobber
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release upload "${TAG_NAME}" \
+            "artifacts/ppspi-${VERSION}-raspios-trixie-arm64.img.xz" \
+            "artifacts/ppspi-${VERSION}-raspios-trixie-arm64.img.xz.sha256" \
+            "artifacts/build-info.json" \
+            "artifacts/ppspi-${VERSION}-raspios-trixie-arm64.rpi-imager-manifest" \
+            --clobber

@@ -84,6 +84,51 @@ class ReleasePackagingTests(unittest.TestCase):
             self.assertEqual(entry["init_format"], "cloudinit-rpi")
             self.assertEqual(entry["image_download_sha256"], expected_hash)
 
+            validate_command = [
+                sys.executable,
+                str(PROJECT_ROOT / "scripts" / "validate-release-assets.py"),
+                "--directory",
+                str(output),
+                "--version",
+                "0.1.0",
+                "--tag",
+                "v0.1.0",
+                "--repository",
+                "Bazsy/PPSPi",
+                "--expected-commit",
+                "a" * 40,
+                "--json",
+            ]
+            validation_process = subprocess.run(
+                validate_command,
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+            self.assertEqual(
+                validation_process.returncode,
+                0,
+                validation_process.stderr,
+            )
+            validation = json.loads(validation_process.stdout)
+            self.assertEqual(validation["assets"], [
+                "ppspi-0.1.0-raspios-trixie-arm64.img.xz",
+                "ppspi-0.1.0-raspios-trixie-arm64.img.xz.sha256",
+                "build-info.json",
+                "ppspi-0.1.0-raspios-trixie-arm64.rpi-imager-manifest",
+            ])
+            self.assertEqual(validation["image_sha256"], expected_hash)
+
+            (output / "unexpected.txt").write_text("not a release asset\n", encoding="utf-8")
+            rejected_process = subprocess.run(
+                validate_command,
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+            self.assertEqual(rejected_process.returncode, 1)
+            self.assertIn("release asset set mismatch", rejected_process.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
