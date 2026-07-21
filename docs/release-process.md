@@ -78,7 +78,9 @@ Do not publish an image release while:
 - PPS GPIO or edge is inferred rather than verified;
 - any required acceptance item is untested or failed;
 - first-boot account creation or SSH defaults are unverified;
-- NTP access boundaries have not been tested from allowed and denied clients.
+- NTP access boundaries have neither been tested from applicable allowed/denied
+    clients nor explicitly scope-waived with compensating controls in the final
+    hardware report.
 
 ## Publish through GitHub
 
@@ -114,6 +116,14 @@ asset upload uses `--clobber` for that tag.
 5. Flash the public download and perform a shortened smoke boot.
 6. Confirm no credentials or local identifiers are present.
 7. Open the next development version pull request, such as `0.2.0-dev`.
+
+The test-image hardware report and public release rebuild must identify their
+respective commits and hashes. The public asset is rebuilt from the reviewed tag,
+so it is not expected to have the same compressed hash as an earlier temporary
+workflow artifact. Runtime/configuration changes after hardware acceptance
+require a new full candidate test; version, changelog, and documentation-only
+release preparation still requires the public-asset checksum and shortened smoke
+boot above.
 
 ## Release trigger summary
 
