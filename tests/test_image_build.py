@@ -76,6 +76,17 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("mode=0o644", config_tool)
         self.assertIn("/etc/ppstime/ppstime.env", image_validator)
 
+    def test_image_requires_stateful_health_monitor(self) -> None:
+        image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("/usr/lib/ppstime/ppstime-health", image_validator)
+        self.assertIn("/usr/lib/ppstime/ppstime-healthcheck", image_validator)
+        self.assertIn("/usr/local/sbin/ppstime-health", image_validator)
+        self.assertIn("/etc/ppstime/health-transition.d", image_validator)
+        self.assertIn("is-enabled ppstime-healthcheck.timer", image_validator)
+        self.assertIn("RuntimeDirectoryPreserve=yes", image_validator)
+
     def test_image_requires_gpsd_coarse_clock_socket(self) -> None:
         image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(
             encoding="utf-8"

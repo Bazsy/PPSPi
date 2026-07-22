@@ -80,17 +80,24 @@ graph TD
     Chrony --> SaveTimer["ppstime-rtc-save.timer"]
     GPSD --> HealthTimer["ppstime-healthcheck.timer"]
     Chrony --> HealthTimer
+        HealthTimer --> HealthState["Confirmed state in /run/ppstime"]
+        HealthState --> Hooks["Optional guarded transition hooks"]
 ```
 
 Chrony must create its GPSD SOCK socket before GPSD starts. GPSD waits up to 30
 seconds for serial and PPS devices, then systemd's bounded restart policy retries
 after transient failures. There are no arbitrary long startup sleeps.
 
-The health check reports state to the journal and always exits successfully. A
-normal antenna outage therefore cannot create a service restart storm. Chrony's
-bounded root-distance policy ages stopped PPS naturally and selects fresh
-network time without a watchdog modifying source state. The RTC save command
-silently defers writes while Chrony is unsynchronized.
+The health check samples status every two minutes and requires two consecutive
+observations before confirming a state transition. It stores non-secret volatile
+state under `/run/ppstime`, reports initialization/transitions to the journal,
+and always exits successfully. A normal antenna outage therefore cannot create
+a service restart storm. Chrony's bounded root-distance policy ages stopped PPS
+naturally and selects fresh network time without a watchdog modifying source
+state. The built-in monitor never modifies this selection contract. Optional
+hooks are trusted, root-owned operator code and are required by policy to remain
+notification-only. The RTC save command silently defers writes while Chrony is
+unsynchronized.
 
 ## Trust and failure behavior
 

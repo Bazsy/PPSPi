@@ -161,6 +161,18 @@ Generate a support bundle with:
 sudo ppstime-diagnostics --output-dir /tmp
 ```
 
+Inspect confirmed appliance health and transition state with:
+
+```console
+ppstime-health
+ppstime-health --json
+```
+
+The passive monitor requires two consecutive observations before changing
+state, never restarts timing services, and can emit Prometheus textfile metrics
+or invoke guarded local transition hooks. See
+[health monitoring and soak testing](docs/monitoring.md).
+
 Bundles contain only PPSPi-related status, logs, device information, and a
 sanitised configuration. They exclude SSH material, password databases,
 network credentials, and unrelated logs. Review every archive before sharing.
@@ -237,6 +249,7 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - [Architecture](docs/architecture.md)
 - [Chrony design](docs/chrony.md)
 - [Diagnostics](docs/diagnostics.md)
+- [Health monitoring and soak testing](docs/monitoring.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Hardware acceptance plan](docs/hardware-test-plan.md)
 - [v0.1.0 hardware report](docs/hardware-test-report-v0.1.0.md)

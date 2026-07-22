@@ -79,6 +79,34 @@ sudo jq -e \
     '.raspberry_pi_os_release == "trixie" and .architecture == "arm64"' \
     "${root_mount}/etc/ppstime/build-info.json" > /dev/null
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-status" ]]
+[[ -x "${root_mount}/usr/lib/ppstime/ppstime-health" ]]
+[[ -x "${root_mount}/usr/lib/ppstime/ppstime-healthcheck" ]]
+[[ -L "${root_mount}/usr/local/sbin/ppstime-health" ]]
+[[ "$(sudo readlink "${root_mount}/usr/local/sbin/ppstime-health")" == "/usr/lib/ppstime/ppstime-health" ]]
+[[ -f "${root_mount}/etc/systemd/system/ppstime-healthcheck.service" ]]
+[[ -f "${root_mount}/etc/systemd/system/ppstime-healthcheck.timer" ]]
+sudo grep -Fxq 'ExecStart=/usr/lib/ppstime/ppstime-healthcheck' \
+    "${root_mount}/etc/systemd/system/ppstime-healthcheck.service"
+sudo grep -Fxq 'RuntimeDirectory=ppstime' \
+    "${root_mount}/etc/systemd/system/ppstime-healthcheck.service"
+sudo grep -Fxq 'RuntimeDirectoryPreserve=yes' \
+    "${root_mount}/etc/systemd/system/ppstime-healthcheck.service"
+sudo grep -Fxq 'ProtectSystem=strict' \
+    "${root_mount}/etc/systemd/system/ppstime-healthcheck.service"
+sudo grep -Fxq 'CapabilityBoundingSet=' \
+    "${root_mount}/etc/systemd/system/ppstime-healthcheck.service"
+sudo grep -Fxq 'OnUnitActiveSec=2min' \
+    "${root_mount}/etc/systemd/system/ppstime-healthcheck.timer"
+[[ "$(sudo stat -c '%U:%G:%a' "${root_mount}/etc/ppstime/health-transition.d")" == "root:root:755" ]]
+health_timer_state="$(
+    sudo systemctl --root="${root_mount}" is-enabled ppstime-healthcheck.timer \
+        2> /dev/null || true
+)"
+[[ "${health_timer_state}" == "enabled" ]] || {
+    printf 'PPSPi image validation error: health timer state is %s, expected enabled\n' \
+        "${health_timer_state:-unknown}" >&2
+    exit 1
+}
 [[ "$(sudo stat -c '%a' "${root_mount}/etc/ppstime/ppstime.env")" == "644" ]]
 sudo grep -qx \
     'dtoverlay=i2c-rtc,rv3028,backup-switchover-mode=3' \

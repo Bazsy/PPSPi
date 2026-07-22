@@ -12,8 +12,13 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ppstime_core import ConfigError, parse_env_file, run_command, sanitize_config, validate_config
-
+from ppstime_core import (
+    ConfigError,
+    parse_env_file,
+    run_command,
+    sanitize_config,
+    validate_config,
+)
 
 COMMANDS = {
     "packages.txt": [
@@ -71,15 +76,45 @@ def write_command(path: Path, command: list[str], timeout: float = 15.0) -> None
     )
 
 
+def write_health_state(path: Path) -> None:
+    result = run_command(["/usr/lib/ppstime/ppstime-health", "--json"], timeout=5)
+    if result.returncode == 0:
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            payload = {"error": f"health command returned invalid JSON: {exc}"}
+    else:
+        payload = {
+            "error": result.stderr.strip() or "health state unavailable",
+            "exit_code": result.returncode,
+        }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def relevant_boot_lines() -> str:
     boot_path = next(
-        (path for path in (Path("/boot/firmware/config.txt"), Path("/boot/config.txt")) if path.exists()),
+        (
+            path
+            for path in (Path("/boot/firmware/config.txt"), Path("/boot/config.txt"))
+            if path.exists()
+        ),
         None,
     )
     if boot_path is None:
         return "boot configuration not found\n"
-    prefixes = ("enable_uart=", "dtparam=i2c", "dtoverlay=pps", "dtoverlay=i2c-rtc", "# BEGIN PPSPi", "# END PPSPi")
-    lines = [line for line in boot_path.read_text(encoding="utf-8").splitlines() if line.strip().startswith(prefixes)]
+    prefixes = (
+        "enable_uart=",
+        "dtparam=i2c",
+        "dtoverlay=pps",
+        "dtoverlay=i2c-rtc",
+        "# BEGIN PPSPi",
+        "# END PPSPi",
+    )
+    lines = [
+        line
+        for line in boot_path.read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith(prefixes)
+    ]
     return f"# {boot_path}\n" + "\n".join(lines) + "\n"
 
 
@@ -104,9 +139,15 @@ def main() -> int:
         (bundle / "configuration.json").write_text(
             json.dumps(sanitize_config(config), indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-        (bundle / "boot-configuration.txt").write_text(relevant_boot_lines(), encoding="utf-8")
+        (bundle / "boot-configuration.txt").write_text(
+            relevant_boot_lines(), encoding="utf-8"
+        )
         model_path = Path("/proc/device-tree/model")
-        model = model_path.read_text(encoding="utf-8").rstrip("\x00") if model_path.exists() else "unknown"
+        model = (
+            model_path.read_text(encoding="utf-8").rstrip("\x00")
+            if model_path.exists()
+            else "unknown"
+        )
         metadata = {
             "generated_utc": timestamp,
             "kernel": platform.release(),
@@ -114,11 +155,20 @@ def main() -> int:
             "raspberry_pi_model": model,
             "effective_user_id": os.geteuid(),
         }
-        (bundle / "system.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-        devices = sorted(str(path) for pattern in ("serial*", "ttyAMA*", "ttyS*", "pps*", "rtc*") for path in Path("/dev").glob(pattern))
-        (bundle / "devices.txt").write_text("\n".join(devices) + "\n", encoding="utf-8")
+        (bundle / "system.json").write_text(
+            json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+        )
+        devices = sorted(
+            str(path)
+            for pattern in ("serial*", "ttyAMA*", "ttyS*", "pps*", "rtc*")
+            for path in Path("/dev").glob(pattern)
+        )
+        (bundle / "devices.txt").write_text(
+            "\n".join(devices) + "\n", encoding="utf-8"
+        )
         for filename, command in COMMANDS.items():
             write_command(bundle / filename, command)
+        write_health_state(bundle / "health-state.json")
         write_command(bundle / "ppstest.txt", ["ppstest", config["PPS_DEVICE"]], timeout=3)
         write_command(bundle / "gpspipe.txt", ["gpspipe", "-w", "-n", "10"], timeout=10)
         write_command(

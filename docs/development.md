@@ -46,6 +46,7 @@ The suite covers:
 - generated GPSD and Chrony configuration;
 - Chrony, GPSD, PPS, RTC, and systemd fixture parsing;
 - successful Stratum-1 and degraded timing states;
+- stateful health classification, hysteresis, duration, hooks, and metrics;
 - full `ppstime-test` fixture behavior;
 - alternate-root installation run twice;
 - XZ packaging, build metadata, and SHA-256 output;

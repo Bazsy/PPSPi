@@ -147,12 +147,23 @@ Always inspect an archive before sharing it. Device paths, host timing behavior,
 client addresses in `chronyc clients`, and related logs may still be sensitive
 in your environment.
 
-## Passive health timer
+## Passive health monitor
 
-`ppstime-healthcheck.timer` runs after five minutes and every 15 minutes with a
-small randomized delay. It writes one summary line to the journal. It does not
-restart services and returns success even when GNSS is unavailable, preventing
-ordinary antenna outages from becoming systemd restart loops.
+`ppstime-healthcheck.timer` starts after five minutes and samples status every
+two minutes with a small randomized delay. Two matching observations are needed
+to confirm `HEALTHY_PPS`, `NETWORK_FALLBACK`, `UNSYNCHRONIZED`, or
+`HARDWARE_ERROR`. The non-secret current state is stored under `/run/ppstime`
+and included in diagnostics as `health-state.json`.
+
+It does not restart services and returns success even when collection or a
+notification hook fails, preventing ordinary antenna outages or monitoring
+faults from becoming systemd restart loops. Inspect current state with:
+
+```console
+ppstime-health
+ppstime-health --json
+ppstime-health --prometheus
+```
 
 Inspect it with:
 
@@ -160,3 +171,7 @@ Inspect it with:
 systemctl list-timers ppstime-healthcheck.timer
 journalctl -u ppstime-healthcheck.service
 ```
+
+See [health monitoring and soak testing](monitoring.md) for state semantics,
+guarded local hooks, Prometheus textfile integration, and the 7–14 day soak
+procedure.

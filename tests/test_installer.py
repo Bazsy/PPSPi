@@ -52,6 +52,21 @@ class InstallerTests(unittest.TestCase):
             self.assertIn("dtparam=audio=on", installed_boot)
             self.assertNotIn("console=serial0", cmdline_txt.read_text(encoding="utf-8"))
             self.assertTrue((root / "usr" / "local" / "sbin" / "ppstime-status").is_symlink())
+            health_link = root / "usr" / "local" / "sbin" / "ppstime-health"
+            self.assertTrue(health_link.is_symlink())
+            self.assertEqual(health_link.readlink(), Path("/usr/lib/ppstime/ppstime-health"))
+            self.assertTrue((root / "usr" / "lib" / "ppstime" / "ppstime-health").is_file())
+            self.assertTrue((root / "etc" / "ppstime" / "health-transition.d").is_dir())
+            health_service = (
+                root / "etc" / "systemd" / "system" / "ppstime-healthcheck.service"
+            ).read_text(encoding="utf-8")
+            self.assertIn("RuntimeDirectory=ppstime", health_service)
+            self.assertIn("RuntimeDirectoryPreserve=yes", health_service)
+            self.assertIn("ProtectSystem=strict", health_service)
+            health_timer = (
+                root / "etc" / "systemd" / "system" / "ppstime-healthcheck.timer"
+            ).read_text(encoding="utf-8")
+            self.assertIn("OnUnitActiveSec=2min", health_timer)
             self.assertEqual(
                 (root / "etc" / "modules-load.d" / "ppstime.conf").read_text(
                     encoding="utf-8"
