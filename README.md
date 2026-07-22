@@ -169,6 +169,17 @@ Generate a support bundle with:
 sudo ppstime-diagnostics --output-dir /tmp
 ```
 
+The current `0.2.0-dev` branch adds `ppstime-backup`; it is not included in the
+published v0.1.0 image. On `0.2.0-dev`, create a portable mode-`0600` PPSPi
+configuration backup with:
+
+```console
+ppstime-backup export --output "$HOME/ppstime-backup.tar.gz"
+```
+
+It excludes accounts, SSH keys, Wi-Fi credentials, and unrelated OS files.
+See [configuration backup and disaster recovery](docs/backup-restore.md).
+
 `ppstime-health` and the passive stateful monitor are available on the current
 `0.2.0-dev` development branch; they are not included in the published v0.1.0
 image. On a `0.2.0-dev` installation, inspect confirmed appliance health and
@@ -266,6 +277,7 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - [Chrony design](docs/chrony.md)
 - [Diagnostics](docs/diagnostics.md)
 - [Health monitoring and soak testing](docs/monitoring.md)
+- [Configuration backup and disaster recovery](docs/backup-restore.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Hardware acceptance plan](docs/hardware-test-plan.md)
 - [v0.1.0 hardware report](docs/hardware-test-report-v0.1.0.md)

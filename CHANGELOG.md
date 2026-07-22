@@ -12,6 +12,8 @@ All notable changes are documented here. PPSPi follows
   local notification hooks, and a documented 7–14 day operational soak.
 - beginner quick-start and roadmap documentation, a one-file Imager manifest
   path, and experimental/community/release-tested hardware support levels.
+- strict mode-0600 configuration export/inspect/restore with target hardware
+  validation, dry-run, automatic pre-restore backup, and managed-file rollback.
 
 ## 0.1.0 - 2026-07-22
 
