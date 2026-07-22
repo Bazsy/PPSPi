@@ -7,27 +7,53 @@ current Trixie image.
 
 ## Flash a published release
 
-Each GitHub Release includes:
+### Beginner path: download one file
+
+Open the [latest PPSPi release](https://github.com/Bazsy/PPSPi/releases/latest),
+expand **Assets**, and download only:
+
+`ppspi-<version>-raspios-trixie-arm64.rpi-imager-manifest`
+
+The `/latest` URL is only a discovery page. The downloaded manifest itself
+points to an immutable, versioned GitHub Release asset rather than a mutable
+"latest image" URL.
+
+Open the manifest by double-clicking it. The manifest selects the exact
+versioned image on the GitHub Release, identifies Raspberry Pi 4 Model B as the
+supported target, enables Imager's customisation pages through
+`init_format: cloudinit-rpi`, and supplies the image URL, size, and SHA-256.
+Imager uses the manifest's compressed and extracted sizes and SHA-256 values to
+reject mismatched content, and it verifies the data written to the card.
+
+If the file association is unavailable, open Imager and choose **App Options** >
+**Content Repository** > **Edit** > **Use custom file**, select the manifest,
+and choose **Apply & restart**.
+
+Do not select the image with **Use custom** when customisation is required.
+Imager 2.x intentionally assigns `init_format: none` to an image selected that
+way because it has no metadata describing the image's first-boot mechanism.
+
+### Why the release still has four assets
+
+Each release retains:
 
 - `ppspi-<version>-raspios-trixie-arm64.img.xz`;
 - the matching `.sha256` file;
 - `build-info.json`;
 - `ppspi-<version>-raspios-trixie-arm64.rpi-imager-manifest`.
 
-Verify the downloaded image before use:
+Only the manifest is required for the normal online Imager path. The other
+files support offline/manual flashing and independent audit:
+
+- `.img.xz` is the compressed disk image;
+- `.sha256` verifies a manually downloaded image;
+- `build-info.json` identifies source commit, OS, architecture, and profile.
+
+For a manual/offline image download, verify it before use:
 
 ```console
 sha256sum --check ppspi-<version>-raspios-trixie-arm64.img.xz.sha256
 ```
-
-Open the `.rpi-imager-manifest` file by double-clicking it. The manifest selects
-the exact versioned image on the GitHub Release, identifies Raspberry Pi 4 Model
-B as the supported target, and enables Imager's customisation pages through
-`init_format: cloudinit-rpi`.
-
-If the file association is unavailable, open Imager and choose **App Options** >
-**Content Repository** > **Edit** > **Use custom file**, select the manifest,
-and choose **Apply & restart**.
 
 Configure at least:
 
@@ -52,10 +78,6 @@ optional hardening for operators comfortable managing keys.
 The manifest contains no password, SSH key, Wi-Fi credential, or optional
 hardware capability. Imager writes the operator's choices only to the selected
 storage during flashing.
-
-Do not select the image with **Use custom** when customisation is required.
-Imager 2.x intentionally assigns `init_format: none` to an image selected that
-way because it has no metadata describing the image's first-boot mechanism.
 
 ## Use an already-downloaded or test image
 

@@ -228,8 +228,11 @@ does not open firewall rules because Raspberry Pi OS deployments differ.
 
 Pi 3, Pi 5, Pi 400, Compute Modules, and Zero models can differ in UART aliases,
 GPIO controllers, boot firmware, thermal behavior, and header use. The current
-model guard prevents accidental installation. Do not bypass it for a release;
-create and test a separate profile and acceptance plan.
+model guard prevents accidental installation. Do not bypass it for a release.
+Contributors can validate one exact model through the shorter experimental path;
+see [hardware support levels](hardware-support-tiers.md) and the
+[roadmap](roadmap.md). Experimental support does not require the complete
+release acceptance plan.
 
 ## Services repeatedly fail
 

@@ -1,8 +1,15 @@
-# Raspberry Pi 4 hardware acceptance test plan
+# Release-tested hardware acceptance plan
 
-This plan is mandatory before an image is described as hardware-tested. Run it
-on the exact image artifact and record results using
+This complete plan is mandatory only before an exact combination is described as
+**release-tested**. Run it on the exact image artifact and record results using
 `hardware-test-report-template.md`.
+
+It is **not** the entry requirement for a new hardware contribution.
+Experimental profiles use the compact checklist and report in
+[hardware support levels](hardware-support-tiers.md). They do not require a
+24-hour observation, every network scenario, or a polished release report.
+Community-validated promotion adds fallback/recovery, reboot, diagnostics, and a
+short soak before this full release gate becomes relevant.
 
 ## Test identity
 
@@ -174,7 +181,7 @@ independent accuracy reference.
 
 ## Pass criteria
 
-The release gate passes only when every applicable check passes on the target
+Release-tested promotion passes only when every applicable check passes on the target
 hardware, every non-applicable check has an explicitly approved **WAIVED** entry,
 the observation window has no unexplained timing steps or service failures, and
 the report identifies the exact public artifact candidate. A waiver reduces
