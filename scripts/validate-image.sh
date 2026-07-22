@@ -107,7 +107,7 @@ Dir::Etc "${root_mount}/etc/apt";
 Dir::Etc::parts "apt.conf.d";
 EOF
 effective_apt="$(APT_CONFIG="${apt_validation_config}" apt-config dump)"
-printf '%s\n' "${effective_apt}" | grep -Fq '${distro_codename}-security'
+printf '%s\n' "${effective_apt}" | grep -Fq "\${distro_codename}-security"
 if printf '%s\n' "${effective_apt}" | grep -Eq \
     'Unattended-Upgrade::Allowed-Origins:: .*'; then
     printf 'PPSPi image validation error: security scope inherited allowed origins\n' >&2
