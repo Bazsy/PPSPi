@@ -42,7 +42,8 @@ and leave running:
    [issue #68](https://github.com/Bazsy/PPSPi/issues/68);
 - configuration export and disaster recovery (implemented in `0.2.0-dev`):
    [issue #69](https://github.com/Bazsy/PPSPi/issues/69);
-- host storage, temperature, throttling, and update health:
+- host storage, temperature, throttling, and update health (implemented in
+   `0.2.0-dev`):
    [issue #77](https://github.com/Bazsy/PPSPi/issues/77);
 - optional read-only LAN dashboard with short history graphs:
    [issue #78](https://github.com/Bazsy/PPSPi/issues/78).

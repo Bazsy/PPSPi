@@ -39,6 +39,21 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(self.config["CHRONY_MAX_CLOCK_ERROR_PPM"], "200")
         self.assertEqual(self.config["CHRONY_MAX_DISTANCE"], "0.1")
 
+    def test_host_health_threshold_defaults_and_validation(self) -> None:
+        self.assertEqual(self.config["HOST_DISK_WARNING_PERCENT"], "15.0")
+        self.assertEqual(self.config["HOST_TEMPERATURE_CRITICAL_C"], "85.0")
+        self.assertEqual(self.config["HOST_UPDATE_CRITICAL_HOURS"], "168.0")
+        invalid_cases = (
+            {"HOST_DISK_CRITICAL_PERCENT": "20"},
+            {"HOST_INODE_WARNING_PERCENT": "101"},
+            {"HOST_TEMPERATURE_WARNING_C": "90"},
+            {"HOST_UPDATE_CRITICAL_HOURS": "24"},
+            {"HOST_DISK_WARNING_PERCENT": "nan"},
+        )
+        for changes in invalid_cases:
+            with self.subTest(changes=changes), self.assertRaises(ConfigError):
+                validate_config(dict(self.config, **changes))
+
     def test_active_configuration_has_no_secret_keys(self) -> None:
         sensitive = ("PASSWORD", "SECRET", "TOKEN", "PRIVATE", "WIFI", "SSID", "KEY")
         self.assertFalse(

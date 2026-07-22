@@ -14,6 +14,9 @@ All notable changes are documented here. PPSPi follows
   path, and experimental/community/release-tested hardware support levels.
 - strict mode-0600 configuration export/inspect/restore with target hardware
   validation, dry-run, automatic pre-restore backup, and managed-file rollback.
+- separate passive host health for root/boot capacity and inodes, read-only/ext4
+  errors, Raspberry Pi temperature/throttling, and OS update freshness, with
+  independent hysteresis, hooks, diagnostics, JSON, and Prometheus metrics.
 
 ## 0.1.0 - 2026-07-22
 

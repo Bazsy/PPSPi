@@ -59,6 +59,7 @@ sudo mount -o ro "${loop_device}p1" "${root_mount}/boot/firmware"
 sudo grep -qx 'VERSION_CODENAME=trixie' "${root_mount}/etc/os-release"
 [[ -x "${root_mount}/usr/bin/cloud-init" ]]
 [[ -x "${root_mount}/usr/sbin/hwclock" ]]
+[[ -x "${root_mount}/usr/bin/vcgencmd" ]]
 sudo find "${root_mount}/usr/lib/python3" -type f -name 'cc_raspberry_pi.py' -print -quit |
     grep -q .
 sudo grep -qx 'i2c-dev' "${root_mount}/etc/modules-load.d/ppstime.conf"
@@ -80,11 +81,14 @@ sudo jq -e \
     "${root_mount}/etc/ppstime/build-info.json" > /dev/null
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-status" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-backup" ]]
+[[ -x "${root_mount}/usr/lib/ppstime/ppstime-host-health" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-health" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-healthcheck" ]]
 [[ -L "${root_mount}/usr/local/sbin/ppstime-health" ]]
 [[ -L "${root_mount}/usr/local/sbin/ppstime-backup" ]]
 [[ "$(sudo readlink "${root_mount}/usr/local/sbin/ppstime-backup")" == "/usr/lib/ppstime/ppstime-backup" ]]
+[[ -L "${root_mount}/usr/local/sbin/ppstime-host-health" ]]
+[[ "$(sudo readlink "${root_mount}/usr/local/sbin/ppstime-host-health")" == "/usr/lib/ppstime/ppstime-host-health" ]]
 [[ "$(sudo readlink "${root_mount}/usr/local/sbin/ppstime-health")" == "/usr/lib/ppstime/ppstime-health" ]]
 [[ -f "${root_mount}/etc/systemd/system/ppstime-healthcheck.service" ]]
 [[ -f "${root_mount}/etc/systemd/system/ppstime-healthcheck.timer" ]]
@@ -111,6 +115,8 @@ health_timer_state="$(
     exit 1
 }
 [[ "$(sudo stat -c '%a' "${root_mount}/etc/ppstime/ppstime.env")" == "644" ]]
+sudo grep -Fxq 'HOST_DISK_WARNING_PERCENT=15.0' \
+    "${root_mount}/etc/ppstime/ppstime.env"
 sudo grep -qx \
     'dtoverlay=i2c-rtc,rv3028,backup-switchover-mode=3' \
     "${root_mount}/boot/firmware/config.txt"

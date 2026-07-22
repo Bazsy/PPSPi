@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 SOURCE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly SOURCE_ROOT
-readonly PACKAGES=(chrony gpsd gpsd-clients pps-tools i2c-tools jq python3 util-linux-extra)
+readonly PACKAGES=(chrony gpsd gpsd-clients pps-tools i2c-tools jq python3 raspi-utils util-linux-extra)
 
 target_root="/"
 profile=""
@@ -137,12 +137,13 @@ log "installing PPSPi runtime"
 copy_file "${SOURCE_ROOT}/files/ppstime/ppstime_core.py" "/usr/lib/ppstime/ppstime_core.py" 0644
 copy_file "${SCRIPT_DIR}/configure-profile.py" "/usr/lib/ppstime/configure-profile.py" 0755
 for command_name in ppstime-status ppstime-test ppstime-config ppstime-diagnostics \
-    ppstime-backup ppstime-wait-devices ppstime-rtc ppstime-health ppstime-healthcheck; do
+    ppstime-backup ppstime-host-health ppstime-wait-devices ppstime-rtc \
+    ppstime-health ppstime-healthcheck; do
     copy_file "${SOURCE_ROOT}/files/ppstime/${command_name}" "/usr/lib/ppstime/${command_name}" 0755
 done
 run install -d -m 0755 "$(rooted /usr/local/sbin)"
 for public_command in ppstime-status ppstime-test ppstime-config ppstime-diagnostics \
-    ppstime-backup; do
+    ppstime-backup ppstime-host-health; do
     run ln -sfn "/usr/lib/ppstime/${public_command}" "$(rooted "/usr/local/sbin/${public_command}")"
 done
 run ln -sfnT "/usr/lib/ppstime/ppstime-health" "$(rooted /usr/local/sbin/ppstime-health)"

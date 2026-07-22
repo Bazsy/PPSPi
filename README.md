@@ -191,9 +191,11 @@ ppstime-health --json
 ```
 
 The passive monitor requires two consecutive observations before changing
-state, never restarts timing services, and can emit Prometheus textfile metrics
-or invoke guarded local transition hooks. See
-[health monitoring and soak testing](docs/monitoring.md).
+timing or host state, never remediates, restarts, or reboots, and can emit
+Prometheus textfile metrics or invoke guarded local transition hooks. Inspect
+storage, temperature, throttling, filesystem errors, and update freshness with
+`ppstime-host-health`. See [health monitoring and soak testing](docs/monitoring.md)
+and [host health monitoring](docs/host-health.md).
 
 Bundles contain only PPSPi-related status, logs, device information, and a
 sanitised configuration. They exclude SSH material, password databases,
@@ -277,6 +279,7 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - [Chrony design](docs/chrony.md)
 - [Diagnostics](docs/diagnostics.md)
 - [Health monitoring and soak testing](docs/monitoring.md)
+- [Host health monitoring](docs/host-health.md)
 - [Configuration backup and disaster recovery](docs/backup-restore.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Hardware acceptance plan](docs/hardware-test-plan.md)

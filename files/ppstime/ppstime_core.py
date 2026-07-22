@@ -47,11 +47,30 @@ CONFIG_KEYS = frozenset(
         "CHRONY_MAX_CLOCK_ERROR_PPM",
         "CHRONY_MAX_DISTANCE",
         "CHRONY_ENABLED",
+        "HOST_DISK_WARNING_PERCENT",
+        "HOST_DISK_CRITICAL_PERCENT",
+        "HOST_INODE_WARNING_PERCENT",
+        "HOST_INODE_CRITICAL_PERCENT",
+        "HOST_TEMPERATURE_WARNING_C",
+        "HOST_TEMPERATURE_CRITICAL_C",
+        "HOST_UPDATE_WARNING_HOURS",
+        "HOST_UPDATE_CRITICAL_HOURS",
         "SSH_ENABLED",
         "DEFAULT_HOSTNAME",
         "SUPPORTED_MODEL_PATTERN",
     }
 )
+
+HOST_THRESHOLD_DEFAULTS = {
+    "HOST_DISK_WARNING_PERCENT": "15.0",
+    "HOST_DISK_CRITICAL_PERCENT": "5.0",
+    "HOST_INODE_WARNING_PERCENT": "15.0",
+    "HOST_INODE_CRITICAL_PERCENT": "5.0",
+    "HOST_TEMPERATURE_WARNING_C": "75.0",
+    "HOST_TEMPERATURE_CRITICAL_C": "85.0",
+    "HOST_UPDATE_WARNING_HOURS": "48.0",
+    "HOST_UPDATE_CRITICAL_HOURS": "168.0",
+}
 
 BOOLEAN_KEYS = frozenset({"GPSD_ENABLED", "RTC_ENABLED", "CHRONY_ENABLED", "SSH_ENABLED"})
 DEVICE_KEYS = frozenset({"GPS_DEVICE", "PPS_DEVICE", "RTC_DEVICE"})
@@ -255,6 +274,44 @@ def validate_config(config: Mapping[str, str]) -> None:
         raise ConfigError("CHRONY_MAX_DISTANCE must be between 0.01 and 1.0 seconds")
     if not HOSTNAME_RE.fullmatch(config["DEFAULT_HOSTNAME"]):
         raise ConfigError("DEFAULT_HOSTNAME must be a valid hostname")
+    threshold_values: dict[str, float] = {}
+    for key in (
+        "HOST_DISK_WARNING_PERCENT",
+        "HOST_DISK_CRITICAL_PERCENT",
+        "HOST_INODE_WARNING_PERCENT",
+        "HOST_INODE_CRITICAL_PERCENT",
+        "HOST_TEMPERATURE_WARNING_C",
+        "HOST_TEMPERATURE_CRITICAL_C",
+        "HOST_UPDATE_WARNING_HOURS",
+        "HOST_UPDATE_CRITICAL_HOURS",
+    ):
+        try:
+            value = float(config[key])
+        except ValueError as exc:
+            raise ConfigError(f"{key} must be numeric") from exc
+        if not math.isfinite(value):
+            raise ConfigError(f"{key} must be finite")
+        threshold_values[key] = value
+    for prefix in ("DISK", "INODE"):
+        critical = threshold_values[f"HOST_{prefix}_CRITICAL_PERCENT"]
+        warning = threshold_values[f"HOST_{prefix}_WARNING_PERCENT"]
+        if not 0.0 < critical < warning <= 100.0:
+            raise ConfigError(
+                f"HOST_{prefix} thresholds must satisfy 0 < critical < warning <= 100"
+            )
+    if not (
+        0.0
+        < threshold_values["HOST_TEMPERATURE_WARNING_C"]
+        < threshold_values["HOST_TEMPERATURE_CRITICAL_C"]
+        <= 150.0
+    ):
+        raise ConfigError("HOST_TEMPERATURE thresholds are invalid")
+    if not (
+        0.0
+        < threshold_values["HOST_UPDATE_WARNING_HOURS"]
+        < threshold_values["HOST_UPDATE_CRITICAL_HOURS"]
+    ):
+        raise ConfigError("HOST_UPDATE thresholds are invalid")
     try:
         re.compile(config["SUPPORTED_MODEL_PATTERN"])
     except re.error as exc:

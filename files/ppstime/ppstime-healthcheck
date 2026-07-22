@@ -12,7 +12,7 @@ def main() -> int:
         result = subprocess.run(
             [str(Path(__file__).with_name("ppstime-health")), "--update"],
             check=False,
-            timeout=40,
+            timeout=65,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"PPSPi health warning: monitor execution failed: {exc}")
