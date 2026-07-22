@@ -8,6 +8,13 @@ sudo ppstime-test
 sudo ppstime-diagnostics --output-dir /tmp
 ```
 
+On `0.2.0-dev`, also check the Raspberry Pi host separately:
+
+```console
+ppstime-host-health
+ppstime-health
+```
+
 Work from hardware and kernel devices upward to GPSD and Chrony. Restarting
 services cannot fix a missing overlay, wrong board revision, or poor sky view.
 
@@ -244,3 +251,13 @@ journalctl -b -u chrony -u gpsd -u ppstime-rtc-restore.service
 GPSD waits a bounded 30 seconds for devices and uses a five-second restart
 delay. Persistent retries mean a required kernel device is absent. The passive
 health timer never restarts services, so it is not the source of a loop.
+
+## Host disk, temperature, or throttling warning
+
+Run `ppstime-host-health --json` and preserve diagnostics before remediation.
+Low free space/inodes, read-only filesystems, current under-voltage/throttling,
+high temperature, or ext4 errors can threaten the appliance even while PPS is
+selected. See [host health monitoring](host-health.md) for thresholds and source
+details. Do not automatically delete files, remount/repair storage, clear flags,
+or reboot to hide the evidence. Replace failing storage and restore a validated
+[configuration backup](backup-restore.md) when necessary.

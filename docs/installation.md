@@ -152,7 +152,8 @@ prove sufficient signal or geometry. `ppstime-test` intentionally returns
 non-zero while essential timing components are unavailable.
 
 When installing the current `0.2.0-dev` development branch, you can also run
-`ppstime-health`. This command is not included in the published v0.1.0 image.
+`ppstime-health` and `ppstime-host-health`. These commands are not included in
+the published v0.1.0 image.
 
 The passive health monitor starts after five minutes and needs two matching
 observations to establish or change state. `UNKNOWN` immediately after boot is

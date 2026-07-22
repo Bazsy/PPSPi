@@ -69,6 +69,34 @@ def healthy_status() -> dict[str, Any]:
     }
 
 
+def healthy_host_status() -> dict[str, Any]:
+    filesystem = {
+        "available": True,
+        "available_bytes": 8_000_000,
+        "available_percent": 80.0,
+        "inode_available_percent": 75.0,
+        "read_only": False,
+        "error": None,
+    }
+    return {
+        "schema_version": 1,
+        "state": "HEALTHY",
+        "reasons": [],
+        "filesystems": {"root": dict(filesystem), "boot": dict(filesystem)},
+        "temperature_celsius": 52.5,
+        "throttling": {"available": True, "flags": 0, "active": [], "error": None},
+        "root_filesystem_errors": 0,
+        "updates": {
+            "status": "SUCCESS",
+            "last_check_utc": "2026-07-22T12:00:00Z",
+            "last_success_utc": "2026-07-22T12:00:00Z",
+            "success_age_seconds": 0.0,
+            "reboot_required": False,
+            "error": None,
+        },
+    }
+
+
 class HealthTests(unittest.TestCase):
     def run_update(
         self,
@@ -77,10 +105,15 @@ class HealthTests(unittest.TestCase):
         now: str,
         *,
         hook_dir: Path | None = None,
+        host_status: dict[str, Any] | None = None,
     ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
         status_path = root / "status.json"
+        host_status_path = root / "host-status.json"
         state_path = root / "health-state.json"
         status_path.write_text(json.dumps(status), encoding="utf-8")
+        host_status_path.write_text(
+            json.dumps(host_status or healthy_host_status()), encoding="utf-8"
+        )
         command = [
             sys.executable,
             str(HEALTH_COMMAND),
@@ -89,6 +122,8 @@ class HealthTests(unittest.TestCase):
             str(state_path),
             "--status-json",
             str(status_path),
+            "--host-status-json",
+            str(host_status_path),
             "--confirmations",
             "2",
             "--now",
@@ -330,7 +365,8 @@ class HealthTests(unittest.TestCase):
                 "previous_duration_seconds": 120,
                 "reasons": ["pps_inactive"],
             }
-            warnings = module.run_hooks(hook_dir, transition)
+            deadline = module.time.monotonic() + 1.0
+            warnings = module.run_hooks(hook_dir, transition, deadline=deadline)
             self.assertEqual(
                 warnings,
                 ["hook 10-slow timed out", "total hook time budget exhausted"],
@@ -339,6 +375,15 @@ class HealthTests(unittest.TestCase):
             process_stat = Path(f"/proc/{child_pid}/stat")
             if process_stat.exists():
                 self.assertEqual(process_stat.read_text(encoding="ascii").split()[2], "Z")
+            self.assertEqual(
+                module.run_hooks(
+                    hook_dir,
+                    transition,
+                    domain="host",
+                    deadline=deadline,
+                ),
+                ["total hook time budget exhausted"],
+            )
 
     def test_malformed_state_and_collection_failure_never_fail_service_update(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -382,7 +427,9 @@ class HealthTests(unittest.TestCase):
             )
             self.assertEqual(process.returncode, 0, process.stderr)
             self.assertIn("status fixture not found", process.stdout)
-            self.assertFalse(missing_state.exists())
+            persisted = json.loads(missing_state.read_text(encoding="utf-8"))
+            self.assertFalse(persisted["timing_collection_available"])
+            self.assertFalse(persisted["host_collection_available"])
 
     def test_json_human_and_prometheus_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -436,6 +483,207 @@ class HealthTests(unittest.TestCase):
                 metrics_result.stdout,
             )
             self.assertIn("ppstime_health_state_duration_seconds 60", metrics_result.stdout)
+            self.assertIn(
+                'ppstime_host_state{state="HEALTHY"} 1', metrics_result.stdout
+            )
+            self.assertIn(
+                'ppstime_host_filesystem_available_percent{filesystem="root"} 80.0',
+                metrics_result.stdout,
+            )
+            self.assertIn(
+                'ppstime_host_filesystem_read_only{filesystem="root"} 0',
+                metrics_result.stdout,
+            )
+            self.assertIn("ppstime_host_temperature_celsius 52.5", metrics_result.stdout)
+            self.assertIn(
+                'ppstime_host_source_available{source="temperature"} 1',
+                metrics_result.stdout,
+            )
+            self.assertIn(
+                'ppstime_host_update_status{status="SUCCESS"} 1',
+                metrics_result.stdout,
+            )
+
+    def test_host_state_hysteresis_domain_hook_and_independent_timing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hook_dir = root / "hooks"
+            hook_dir.mkdir(mode=0o700)
+            hook_log = root / "host-hook.log"
+            hook = hook_dir / "10-host"
+            hook.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os\n"
+                "from pathlib import Path\n"
+                f"Path({str(hook_log)!r}).write_text("
+                "os.environ['PPSTIME_HEALTH_DOMAIN'] + '|' + "
+                "os.environ['PPSTIME_HEALTH_FROM'] + '>' + "
+                "os.environ['PPSTIME_HEALTH_TO'], encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            hook.chmod(0o700)
+            healthy = healthy_host_status()
+            self.run_update(
+                root,
+                healthy_status(),
+                "2026-07-22T12:00:00Z",
+                host_status=healthy,
+                hook_dir=hook_dir,
+            )
+            _, state = self.run_update(
+                root,
+                healthy_status(),
+                "2026-07-22T12:01:00Z",
+                host_status=healthy,
+                hook_dir=hook_dir,
+            )
+            self.assertEqual(state["state"], "HEALTHY_PPS")
+            self.assertEqual(state["host_state"], "HEALTHY")
+            self.assertFalse(hook_log.exists())
+
+            warning = healthy_host_status()
+            warning["state"] = "WARNING"
+            warning["reasons"] = ["root_disk_low"]
+            warning["filesystems"]["root"]["available_percent"] = 10.0
+            self.run_update(
+                root,
+                healthy_status(),
+                "2026-07-22T12:02:00Z",
+                host_status=warning,
+                hook_dir=hook_dir,
+            )
+            transition, state = self.run_update(
+                root,
+                healthy_status(),
+                "2026-07-22T12:03:00Z",
+                host_status=warning,
+                hook_dir=hook_dir,
+            )
+            self.assertEqual(state["state"], "HEALTHY_PPS")
+            self.assertEqual(state["host_state"], "WARNING")
+            self.assertIn("from=HEALTHY to=WARNING", transition.stdout)
+            self.assertEqual(hook_log.read_text(encoding="utf-8"), "host|HEALTHY>WARNING")
+
+    def test_host_collection_continues_when_timing_collection_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            host_path = root / "host.json"
+            host_path.write_text(json.dumps(healthy_host_status()), encoding="utf-8")
+            state_path = root / "health-state.json"
+            for minute in (0, 1):
+                process = subprocess.run(
+                    [
+                        sys.executable,
+                        str(HEALTH_COMMAND),
+                        "--update",
+                        "--state-file",
+                        str(state_path),
+                        "--status-json",
+                        str(root / "missing-timing.json"),
+                        "--host-status-json",
+                        str(host_path),
+                        "--now",
+                        f"2026-07-22T12:0{minute}:00Z",
+                        "--monotonic-seconds",
+                        str(100 + minute * 60),
+                    ],
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+                self.assertEqual(process.returncode, 0, process.stderr)
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["state"], "UNKNOWN")
+            self.assertFalse(state["timing_collection_available"])
+            self.assertEqual(state["host_state"], "HEALTHY")
+            self.assertTrue(state["host_collection_available"])
+
+    def test_repeated_host_collection_failure_warns_without_changing_timing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.run_update(root, healthy_status(), "2026-07-22T12:00:00Z")
+            _, initial = self.run_update(
+                root, healthy_status(), "2026-07-22T12:01:00Z"
+            )
+            last_success = initial["last_host_success_at"]
+            status_path = root / "status.json"
+            status_path.write_text(json.dumps(healthy_status()), encoding="utf-8")
+            state_path = root / "health-state.json"
+            for minute in (2, 3):
+                process = subprocess.run(
+                    [
+                        sys.executable,
+                        str(HEALTH_COMMAND),
+                        "--update",
+                        "--state-file",
+                        str(state_path),
+                        "--status-json",
+                        str(status_path),
+                        "--host-status-json",
+                        str(root / "missing-host.json"),
+                        "--now",
+                        f"2026-07-22T12:0{minute}:00Z",
+                        "--monotonic-seconds",
+                        str(100 + minute * 60),
+                    ],
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+                self.assertEqual(process.returncode, 0, process.stderr)
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["state"], "HEALTHY_PPS")
+            self.assertEqual(state["host_state"], "WARNING")
+            self.assertFalse(state["host_collection_available"])
+            self.assertEqual(state["last_host_success_at"], last_success)
+            self.assertEqual(
+                state["last_host_observation"]["reasons"],
+                ["host_collection_failed"],
+            )
+            metrics = subprocess.run(
+                [
+                    sys.executable,
+                    str(HEALTH_COMMAND),
+                    "--prometheus",
+                    "--state-file",
+                    str(state_path),
+                    "--monotonic-seconds",
+                    "400",
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+            self.assertIn(
+                'ppstime_collection_available{domain="host"} 0', metrics.stdout
+            )
+
+    def test_legacy_state_is_migrated_with_unknown_host_state(self) -> None:
+        module = load_health_module()
+        legacy = module.empty_state()
+        for key in (
+            "host_state",
+            "host_state_since",
+            "host_state_since_monotonic_seconds",
+            "host_pending_state",
+            "host_pending_count",
+            "last_host_observation",
+            "last_host_transition",
+            "last_timing_attempt_at",
+            "last_timing_success_at",
+            "timing_collection_available",
+            "last_host_attempt_at",
+            "last_host_success_at",
+            "host_collection_available",
+        ):
+            del legacy[key]
+        legacy["schema_version"] = 1
+        migrated = module.validate_state(module.migrate_legacy_state(legacy))
+        self.assertEqual(migrated["schema_version"], 3)
+        self.assertEqual(migrated["host_state"], "UNKNOWN")
+        legacy["schema_version"] = True
+        with self.assertRaisesRegex(module.HealthError, "keys do not match schema"):
+            module.validate_state(module.migrate_legacy_state(legacy))
 
     def test_health_state_file_mode_is_world_readable_and_non_secret(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -472,19 +720,11 @@ class HealthTests(unittest.TestCase):
             )
             self.assertEqual(process.returncode, 0, process.stderr)
             self.assertIn("stratum must be an integer or null", process.stdout)
-            self.assertFalse(state_path.exists())
+            persisted = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertFalse(persisted["timing_collection_available"])
+            self.assertFalse(persisted["host_collection_available"])
 
-            invalid_state = {
-                "schema_version": 1,
-                "state": "UNKNOWN",
-                "state_since": None,
-                "state_since_monotonic_seconds": None,
-                "pending_state": "HEALTHY_PPS",
-                "pending_count": 2,
-                "last_checked_at": None,
-                "last_observation": None,
-                "last_transition": None,
-            }
+            invalid_state = load_health_module().empty_state()
             invalid_state["pending_state"] = "HEALTHY_PPS"
             invalid_state["pending_count"] = 2
             state_path.write_text(json.dumps(invalid_state), encoding="utf-8")
@@ -539,6 +779,17 @@ class HealthTests(unittest.TestCase):
             self.assertEqual(json.loads(output.read_text(encoding="utf-8")), {
                 "state": "HEALTHY_PPS"
             })
+            module.run_command = lambda command, timeout: SimpleNamespace(
+                returncode=0,
+                stdout='{"state":"HEALTHY"}\n',
+                stderr="",
+            )
+            host_output = Path(temporary) / "host-health.json"
+            module.write_host_health(host_output)
+            self.assertEqual(
+                json.loads(host_output.read_text(encoding="utf-8")),
+                {"state": "HEALTHY"},
+            )
 
 
 if __name__ == "__main__":

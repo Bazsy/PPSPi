@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.machinery
+import io
 import json
 import stat
 import subprocess
@@ -194,6 +195,36 @@ class BackupTests(unittest.TestCase):
             manifest_payload["schema_version"] = True
             with self.assertRaisesRegex(module.BackupError, "schema version"):
                 module.validate_manifest(manifest_payload)
+
+    def test_pre_host_threshold_backup_migrates_to_current_defaults(self) -> None:
+        module = load_backup_module()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive, current_config = self.export_archive(root)
+            with tarfile.open(archive, "r:gz") as source:
+                manifest = json.loads(source.extractfile("manifest.json").read())
+                config_text = source.extractfile("ppstime.env").read().decode("utf-8")
+            legacy_lines = [
+                line
+                for line in config_text.splitlines()
+                if not line.startswith("HOST_")
+            ]
+            legacy_config = ("\n".join(legacy_lines) + "\n").encode("utf-8")
+            manifest["config_sha256"] = module.sha256_bytes(legacy_config)
+            manifest_content = (
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+            ).encode("utf-8")
+            migrated_archive = root / "pre-host-thresholds.tar.gz"
+            with tarfile.open(migrated_archive, "w:gz") as target:
+                for name, content in (
+                    ("manifest.json", manifest_content),
+                    ("ppstime.env", legacy_config),
+                ):
+                    info = tarfile.TarInfo(name)
+                    info.size = len(content)
+                    target.addfile(info, io.BytesIO(content))
+            _, _, migrated = module.read_archive(migrated_archive)
+            self.assertEqual(migrated, current_config)
 
     def test_restore_dry_run_apply_and_rollback_archive(self) -> None:
         module = load_backup_module()

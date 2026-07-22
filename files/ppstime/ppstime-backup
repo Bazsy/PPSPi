@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -18,6 +19,7 @@ from typing import Any
 
 from ppstime_core import (
     ConfigError,
+    HOST_THRESHOLD_DEFAULTS,
     config_to_env,
     load_config,
     model_is_supported,
@@ -127,8 +129,13 @@ def read_build_info(path: Path) -> dict[str, str | None]:
     return result
 
 
-def load_active_config(path: Path) -> dict[str, str]:
+def load_active_config(
+    path: Path, *, allow_legacy_host_thresholds: bool = False
+) -> dict[str, str]:
     config = parse_env_file(path)
+    missing_host_keys = set(HOST_THRESHOLD_DEFAULTS) - set(config)
+    if allow_legacy_host_thresholds and missing_host_keys == set(HOST_THRESHOLD_DEFAULTS):
+        config.update(HOST_THRESHOLD_DEFAULTS)
     validate_config(config)
     return config
 
@@ -282,13 +289,21 @@ def read_archive(path: Path) -> tuple[dict[str, Any], bytes, dict[str, str]]:
     with tempfile.TemporaryDirectory(prefix="ppstime-backup-validate-") as temporary:
         config_path = Path(temporary) / "ppstime.env"
         config_path.write_text(config_text, encoding="utf-8")
-        config = load_active_config(config_path)
+        original_config = parse_env_file(config_path)
+        expected_original = "# Managed by PPSPi. Use ppstime-config to change values.\n"
+        expected_original += "".join(
+            f"{key}={shlex.quote(original_config[key])}\n"
+            for key in sorted(original_config)
+        )
+        if expected_original.encode("utf-8") != config_content:
+            raise BackupError("backup configuration is not in canonical PPSPi format")
+        config = load_active_config(
+            config_path, allow_legacy_host_thresholds=True
+        )
     if config["PPSTIME_PROFILE"] != manifest["profile"]:
         raise BackupError("backup profile does not match manifest")
     if config["SUPPORTED_MODEL_PATTERN"] != manifest["supported_model_pattern"]:
         raise BackupError("backup model policy does not match manifest")
-    if config_to_env(config).encode("utf-8") != config_content:
-        raise BackupError("backup configuration is not in canonical PPSPi format")
     return manifest, config_content, config
 
 

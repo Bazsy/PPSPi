@@ -8,6 +8,7 @@ import contextlib
 import json
 import math
 import os
+import re
 import signal
 import stat
 import subprocess
@@ -18,8 +19,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
+LEGACY_SCHEMA_VERSION = 1
+HOST_SCHEMA_VERSION = 2
 STATUS_SCHEMA_VERSION = 1
+HOST_STATUS_SCHEMA_VERSION = 1
 CONFIRMATIONS = 2
 HOOK_TIMEOUT_SECONDS = 10
 HOOK_TOTAL_BUDGET_SECONDS = 15
@@ -27,6 +31,7 @@ STATUS_TIMEOUT_SECONDS = 20
 DEFAULT_STATE_FILE = Path("/run/ppstime/health-state.json")
 DEFAULT_HOOK_DIR = Path("/etc/ppstime/health-transition.d")
 DEFAULT_STATUS_COMMAND = Path("/usr/lib/ppstime/ppstime-status")
+DEFAULT_HOST_STATUS_COMMAND = Path("/usr/lib/ppstime/ppstime-host-health")
 HEALTH_STATES = (
     "UNKNOWN",
     "HEALTHY_PPS",
@@ -35,7 +40,8 @@ HEALTH_STATES = (
     "HARDWARE_ERROR",
 )
 METRIC_STATES = HEALTH_STATES
-STATE_KEYS = {
+HOST_STATES = ("UNKNOWN", "HEALTHY", "WARNING", "CRITICAL")
+LEGACY_STATE_KEYS = {
     "schema_version",
     "state",
     "state_since",
@@ -45,6 +51,23 @@ STATE_KEYS = {
     "last_checked_at",
     "last_observation",
     "last_transition",
+}
+STATE_V2_KEYS = LEGACY_STATE_KEYS | {
+    "host_state",
+    "host_state_since",
+    "host_state_since_monotonic_seconds",
+    "host_pending_state",
+    "host_pending_count",
+    "last_host_observation",
+    "last_host_transition",
+}
+STATE_KEYS = STATE_V2_KEYS | {
+    "last_timing_attempt_at",
+    "last_timing_success_at",
+    "timing_collection_available",
+    "last_host_attempt_at",
+    "last_host_success_at",
+    "host_collection_available",
 }
 OBSERVATION_KEYS = {"raw_state", "reasons", "summary"}
 TRANSITION_KEYS = {"from", "to", "at", "previous_duration_seconds", "reasons"}
@@ -176,7 +199,58 @@ def empty_state() -> dict[str, Any]:
         "last_checked_at": None,
         "last_observation": None,
         "last_transition": None,
+        "host_state": "UNKNOWN",
+        "host_state_since": None,
+        "host_state_since_monotonic_seconds": None,
+        "host_pending_state": None,
+        "host_pending_count": 0,
+        "last_host_observation": None,
+        "last_host_transition": None,
+        "last_timing_attempt_at": None,
+        "last_timing_success_at": None,
+        "timing_collection_available": None,
+        "last_host_attempt_at": None,
+        "last_host_success_at": None,
+        "host_collection_available": None,
     }
+
+
+def migrate_legacy_state(payload: Any) -> Any:
+    if not isinstance(payload, dict) or type(payload.get("schema_version")) is not int:
+        return payload
+    migrated = dict(payload)
+    if payload["schema_version"] == LEGACY_SCHEMA_VERSION:
+        if set(payload) != LEGACY_STATE_KEYS:
+            raise HealthError("legacy health state keys do not match schema")
+        migrated.update(
+            {
+                "schema_version": HOST_SCHEMA_VERSION,
+                "host_state": "UNKNOWN",
+                "host_state_since": None,
+                "host_state_since_monotonic_seconds": None,
+                "host_pending_state": None,
+                "host_pending_count": 0,
+                "last_host_observation": None,
+                "last_host_transition": None,
+            }
+        )
+    if migrated["schema_version"] == HOST_SCHEMA_VERSION:
+        if set(migrated) != STATE_V2_KEYS:
+            raise HealthError("schema-v2 health state keys do not match schema")
+        migrated.update(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "last_timing_attempt_at": migrated["last_checked_at"],
+                "last_timing_success_at": migrated["last_checked_at"],
+                "timing_collection_available": (
+                    True if migrated["last_checked_at"] is not None else None
+                ),
+                "last_host_attempt_at": None,
+                "last_host_success_at": None,
+                "host_collection_available": None,
+            }
+        )
+    return migrated
 
 
 def validate_state(payload: Any) -> dict[str, Any]:
@@ -205,6 +279,18 @@ def validate_state(payload: Any) -> dict[str, Any]:
         value = state.get(key)
         if value is not None:
             parse_timestamp(value)
+    for key in (
+        "last_timing_attempt_at",
+        "last_timing_success_at",
+        "last_host_attempt_at",
+        "last_host_success_at",
+    ):
+        value = state.get(key)
+        if value is not None:
+            parse_timestamp(value)
+    for key in ("timing_collection_available", "host_collection_available"):
+        if state.get(key) is not None and not isinstance(state[key], bool):
+            raise HealthError(f"health state {key} must be boolean or null")
     if state["state"] == "UNKNOWN" and state.get("state_since") is not None:
         raise HealthError("UNKNOWN health state cannot have a start time")
     if state["state"] != "UNKNOWN" and state.get("state_since") is None:
@@ -245,6 +331,61 @@ def validate_state(payload: Any) -> dict[str, Any]:
         reasons = transition.get("reasons")
         if not isinstance(reasons, list) or not all(isinstance(reason, str) for reason in reasons):
             raise HealthError("last transition reasons must be strings")
+    if state.get("host_state") not in HOST_STATES:
+        raise HealthError("health state contains an invalid host state")
+    host_pending_state = state.get("host_pending_state")
+    if host_pending_state is not None and host_pending_state not in HOST_STATES[1:]:
+        raise HealthError("health state contains an invalid pending host state")
+    host_pending_count = state.get("host_pending_count")
+    if (
+        type(host_pending_count) is not int
+        or host_pending_count < 0
+        or host_pending_count >= CONFIRMATIONS
+    ):
+        raise HealthError("health state contains an invalid pending host count")
+    if (host_pending_state is None) != (host_pending_count == 0):
+        raise HealthError("health state pending host fields are inconsistent")
+    host_since = state.get("host_state_since")
+    if host_since is not None:
+        parse_timestamp(host_since)
+    host_monotonic = state.get("host_state_since_monotonic_seconds")
+    if state["host_state"] == "UNKNOWN":
+        if host_since is not None or host_monotonic is not None:
+            raise HealthError("UNKNOWN host state cannot have a start time")
+    elif (
+        host_since is None
+        or type(host_monotonic) not in {int, float}
+        or not math.isfinite(host_monotonic)
+        or host_monotonic < 0
+    ):
+        raise HealthError("established host state must have valid start times")
+    host_observation = state.get("last_host_observation")
+    if host_observation is not None:
+        host_observation = require_mapping(host_observation, "last_host_observation")
+        if set(host_observation) != OBSERVATION_KEYS:
+            raise HealthError("last host observation keys do not match schema")
+        if host_observation.get("raw_state") not in HOST_STATES[1:]:
+            raise HealthError("last host observation contains an invalid state")
+        reasons = host_observation.get("reasons")
+        if not isinstance(reasons, list) or not all(isinstance(reason, str) for reason in reasons):
+            raise HealthError("last host observation reasons must be strings")
+        require_mapping(host_observation.get("summary"), "last_host_observation.summary")
+    host_transition = state.get("last_host_transition")
+    if host_transition is not None:
+        host_transition = require_mapping(host_transition, "last_host_transition")
+        if set(host_transition) != TRANSITION_KEYS:
+            raise HealthError("last host transition keys do not match schema")
+        if host_transition.get("from") not in HOST_STATES:
+            raise HealthError("last host transition contains an invalid source state")
+        if host_transition.get("to") not in HOST_STATES[1:]:
+            raise HealthError("last host transition contains an invalid destination state")
+        parse_timestamp(require_string(host_transition, "at", "last_host_transition"))
+        duration = host_transition.get("previous_duration_seconds")
+        if duration is not None and (type(duration) is not int or duration < 0):
+            raise HealthError("last host transition contains an invalid duration")
+        reasons = host_transition.get("reasons")
+        if not isinstance(reasons, list) or not all(isinstance(reason, str) for reason in reasons):
+            raise HealthError("last host transition reasons must be strings")
     return state
 
 
@@ -262,7 +403,7 @@ def load_state(path: Path) -> dict[str, Any]:
         return empty_state()
     if path.is_symlink() or not path.is_file():
         raise HealthError(f"health state path is not a regular file: {path}")
-    return validate_state(load_json_file(path, "health state"))
+    return validate_state(migrate_legacy_state(load_json_file(path, "health state")))
 
 
 def write_state(path: Path, payload: dict[str, Any]) -> None:
@@ -310,6 +451,127 @@ def collect_status(status_json: Path | None, status_command: Path) -> dict[str, 
     except json.JSONDecodeError as exc:
         raise HealthError(f"status collection returned invalid JSON: {exc}") from exc
     return normalize_status(payload)
+
+
+def optional_number(value: Any, name: str) -> int | float | None:
+    if value is None:
+        return None
+    if type(value) not in {int, float} or not math.isfinite(value):
+        raise HealthError(f"{name} must be a finite number or null")
+    return value
+
+
+def normalize_host_status(payload: Any) -> tuple[str, list[str], dict[str, Any]]:
+    host = require_mapping(payload, "host status")
+    schema_version = host.get("schema_version")
+    if type(schema_version) is not int or schema_version != HOST_STATUS_SCHEMA_VERSION:
+        raise HealthError("unsupported ppstime-host-health schema")
+    raw_state = host.get("state")
+    if raw_state not in HOST_STATES[1:]:
+        raise HealthError("host status contains an invalid state")
+    reasons = host.get("reasons")
+    if (
+        not isinstance(reasons, list)
+        or len(reasons) > 32
+        or not all(
+            isinstance(reason, str)
+            and re.fullmatch(r"[a-z0-9_=.-]{1,80}", reason)
+            for reason in reasons
+        )
+    ):
+        raise HealthError("host status reasons must be strings")
+    filesystems = require_mapping(host.get("filesystems"), "host status filesystems")
+    if set(filesystems) != {"root", "boot"}:
+        raise HealthError("host status filesystems must contain root and boot")
+    filesystem_summary: dict[str, Any] = {}
+    for name in ("root", "boot"):
+        filesystem = require_mapping(filesystems[name], f"host status {name}")
+        available = filesystem.get("available")
+        read_only = filesystem.get("read_only")
+        if not isinstance(available, bool) or (
+            read_only is not None and not isinstance(read_only, bool)
+        ):
+            raise HealthError(f"host status {name} availability is invalid")
+        filesystem_summary[name] = {
+            "available": available,
+            "available_bytes": optional_number(
+                filesystem.get("available_bytes"), f"host status {name}.available_bytes"
+            ),
+            "available_percent": optional_number(
+                filesystem.get("available_percent"),
+                f"host status {name}.available_percent",
+            ),
+            "inode_available_percent": optional_number(
+                filesystem.get("inode_available_percent"),
+                f"host status {name}.inode_available_percent",
+            ),
+            "read_only": read_only,
+        }
+    throttling = require_mapping(host.get("throttling"), "host status throttling")
+    throttling_available = throttling.get("available")
+    throttling_flags = throttling.get("flags")
+    if not isinstance(throttling_available, bool) or (
+        throttling_flags is not None
+        and (type(throttling_flags) is not int or throttling_flags < 0)
+    ):
+        raise HealthError("host status throttling values are invalid")
+    updates = require_mapping(host.get("updates"), "host status updates")
+    update_status = updates.get("status")
+    reboot_required = updates.get("reboot_required")
+    if update_status not in {"UNKNOWN", "SUCCESS", "FAILED"} or (
+        reboot_required is not None and not isinstance(reboot_required, bool)
+    ):
+        raise HealthError("host status update values are invalid")
+    filesystem_errors = host.get("root_filesystem_errors")
+    if filesystem_errors is not None and (
+        type(filesystem_errors) is not int or filesystem_errors < 0
+    ):
+        raise HealthError("host status root filesystem errors are invalid")
+    summary = {
+        "filesystems": filesystem_summary,
+        "temperature_celsius": optional_number(
+            host.get("temperature_celsius"), "host status temperature"
+        ),
+        "throttling": {
+            "available": throttling_available,
+            "flags": throttling_flags,
+        },
+        "root_filesystem_errors": filesystem_errors,
+        "updates": {
+            "status": update_status,
+            "success_age_seconds": optional_number(
+                updates.get("success_age_seconds"), "host status update success age"
+            ),
+            "reboot_required": reboot_required,
+            "error": updates.get("error") if isinstance(updates.get("error"), str) else None,
+        },
+    }
+    return raw_state, reasons, summary
+
+
+def collect_host_status(
+    host_json: Path | None, host_command: Path
+) -> tuple[str, list[str], dict[str, Any]]:
+    if host_json is not None:
+        return normalize_host_status(load_json_file(host_json, "host status fixture"))
+    try:
+        result = subprocess.run(
+            [str(host_command), "--json"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=STATUS_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HealthError(f"host status collection failed: {exc}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit code {result.returncode}"
+        raise HealthError(f"host status collection failed: {detail}")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise HealthError(f"host status collection returned invalid JSON: {exc}") from exc
+    return normalize_host_status(payload)
 
 
 def update_state(
@@ -365,6 +627,58 @@ def update_state(
     return state, transition
 
 
+def update_host_state(
+    state: dict[str, Any],
+    raw_state: str,
+    reasons: list[str],
+    summary: dict[str, Any],
+    now: datetime,
+    monotonic: float,
+    confirmations: int,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    if type(confirmations) is not int or confirmations != CONFIRMATIONS:
+        raise HealthError(f"confirmations must be exactly {CONFIRMATIONS}")
+    now_text = format_timestamp(now)
+    state["last_host_observation"] = {
+        "raw_state": raw_state,
+        "reasons": reasons,
+        "summary": summary,
+    }
+    transition: dict[str, Any] | None = None
+    if raw_state == state["host_state"]:
+        state["host_pending_state"] = None
+        state["host_pending_count"] = 0
+    else:
+        if state["host_pending_state"] == raw_state:
+            state["host_pending_count"] += 1
+        else:
+            state["host_pending_state"] = raw_state
+            state["host_pending_count"] = 1
+        if state["host_pending_count"] >= confirmations:
+            previous_state = state["host_state"]
+            previous_duration: int | None = None
+            if state["host_state_since_monotonic_seconds"] is not None:
+                previous_duration = max(
+                    0,
+                    int(monotonic - state["host_state_since_monotonic_seconds"]),
+                )
+            transition = {
+                "from": previous_state,
+                "to": raw_state,
+                "at": now_text,
+                "previous_duration_seconds": previous_duration,
+                "reasons": reasons,
+            }
+            state["host_state"] = raw_state
+            state["host_state_since"] = now_text
+            state["host_state_since_monotonic_seconds"] = monotonic
+            state["host_pending_state"] = None
+            state["host_pending_count"] = 0
+            state["last_host_transition"] = transition
+    validate_state(state)
+    return state, transition
+
+
 def safe_hooks(hook_dir: Path) -> tuple[list[Path], list[str]]:
     if not hook_dir.exists():
         return [], []
@@ -405,12 +719,21 @@ def safe_hooks(hook_dir: Path) -> tuple[list[Path], list[str]]:
     return hooks, warnings
 
 
-def run_hooks(hook_dir: Path, transition: dict[str, Any]) -> list[str]:
+def run_hooks(
+    hook_dir: Path,
+    transition: dict[str, Any],
+    *,
+    domain: str = "timing",
+    deadline: float | None = None,
+) -> list[str]:
+    if domain not in {"timing", "host"}:
+        raise HealthError(f"invalid health hook domain: {domain}")
     hooks, warnings = safe_hooks(hook_dir)
-    deadline = time.monotonic() + HOOK_TOTAL_BUDGET_SECONDS
+    hook_deadline = deadline or (time.monotonic() + HOOK_TOTAL_BUDGET_SECONDS)
     environment = {
         "HOME": "/",
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PPSTIME_HEALTH_DOMAIN": domain,
         "PPSTIME_HEALTH_AT": transition["at"],
         "PPSTIME_HEALTH_FROM": transition["from"],
         "PPSTIME_HEALTH_TO": transition["to"],
@@ -422,7 +745,7 @@ def run_hooks(hook_dir: Path, transition: dict[str, Any]) -> list[str]:
         "PPSTIME_HEALTH_REASONS": ",".join(transition["reasons"]),
     }
     for hook in hooks:
-        remaining = deadline - time.monotonic()
+        remaining = hook_deadline - time.monotonic()
         if remaining <= 0:
             warnings.append("total hook time budget exhausted")
             break
@@ -457,16 +780,26 @@ def state_duration(state: dict[str, Any], monotonic: float) -> int | None:
     return max(0, int(monotonic - state["state_since_monotonic_seconds"]))
 
 
+def host_state_duration(state: dict[str, Any], monotonic: float) -> int | None:
+    if state["host_state_since_monotonic_seconds"] is None:
+        return None
+    return max(0, int(monotonic - state["host_state_since_monotonic_seconds"]))
+
+
 def public_state(state: dict[str, Any], monotonic: float) -> dict[str, Any]:
     result = dict(state)
     result["state_duration_seconds"] = state_duration(state, monotonic)
+    result["host_state_duration_seconds"] = host_state_duration(state, monotonic)
     return result
 
 
 def render_human(state: dict[str, Any], monotonic: float) -> str:
     duration = state_duration(state, monotonic)
+    host_duration = host_state_duration(state, monotonic)
     observation = state.get("last_observation") or {}
     reasons = observation.get("reasons") or []
+    host_observation = state.get("last_host_observation") or {}
+    host_reasons = host_observation.get("reasons") or []
     lines = [
         "PPSPi health",
         "------------",
@@ -479,12 +812,27 @@ def render_human(state: dict[str, Any], monotonic: float) -> str:
         f"Reasons:            {', '.join(reasons) if reasons else 'none'}",
         f"Pending state:      {state['pending_state'] or 'none'}",
         f"Pending count:      {state['pending_count']}",
+        f"Timing collected:   {state['timing_collection_available']}",
+        f"Timing last success:{' ' if state['last_timing_success_at'] else ''}"
+        f"{state['last_timing_success_at'] or 'N/A'}",
+        "",
+        f"Host state:         {state['host_state']}",
+        f"Host state since:   {state['host_state_since'] or 'N/A'}",
+        "Host duration:      "
+        f"{str(host_duration) + ' seconds' if host_duration is not None else 'N/A'}",
+        f"Host observation:   {host_observation.get('raw_state', 'N/A')}",
+        f"Host reasons:       {', '.join(host_reasons) if host_reasons else 'none'}",
+        f"Host pending state: {state['host_pending_state'] or 'none'}",
+        f"Host pending count: {state['host_pending_count']}",
+        f"Host collected:     {state['host_collection_available']}",
+        f"Host last success:  {state['last_host_success_at'] or 'N/A'}",
     ]
     return "\n".join(lines)
 
 
 def render_prometheus(state: dict[str, Any], monotonic: float) -> str:
     duration = state_duration(state, monotonic)
+    host_duration = host_state_duration(state, monotonic)
     checked_at = state.get("last_checked_at")
     checked_timestamp = parse_timestamp(checked_at).timestamp() if checked_at else 0
     lines = [
@@ -509,12 +857,173 @@ def render_prometheus(state: dict[str, Any], monotonic: float) -> str:
             f"ppstime_health_pending_confirmations {state['pending_count']}",
         ]
     )
+    available_values: list[str] = []
+    success_values: list[str] = []
+    for domain in ("timing", "host"):
+        available = state[f"{domain}_collection_available"]
+        success_at = state[f"last_{domain}_success_at"]
+        available_values.append(
+            f'ppstime_collection_available{{domain="{domain}"}} '
+            f"{1 if available else 0}"
+        )
+        success_timestamp = parse_timestamp(success_at).timestamp() if success_at else 0
+        success_values.append(
+            f'ppstime_collection_last_success_timestamp_seconds{{domain="{domain}"}} '
+            f"{success_timestamp:.0f}"
+        )
+    lines.extend(
+        [
+            "# HELP ppstime_collection_available "
+            "Whether the collector succeeded in its latest attempt.",
+            "# TYPE ppstime_collection_available gauge",
+            *available_values,
+            "# HELP ppstime_collection_last_success_timestamp_seconds "
+            "Unix timestamp of the last successful collection.",
+            "# TYPE ppstime_collection_last_success_timestamp_seconds gauge",
+            *success_values,
+        ]
+    )
+    lines.extend(
+        [
+            "# HELP ppstime_host_state Current confirmed PPSPi host health state.",
+            "# TYPE ppstime_host_state gauge",
+        ]
+    )
+    for host_state in HOST_STATES:
+        value = 1 if state["host_state"] == host_state else 0
+        lines.append(f'ppstime_host_state{{state="{host_state}"}} {value}')
+    lines.extend(
+        [
+            "# HELP ppstime_host_state_duration_seconds "
+            "Seconds in the current host state.",
+            "# TYPE ppstime_host_state_duration_seconds gauge",
+            "ppstime_host_state_duration_seconds "
+            f"{host_duration if host_duration is not None else 0}",
+            "# HELP ppstime_host_pending_confirmations Host observations awaiting confirmation.",
+            "# TYPE ppstime_host_pending_confirmations gauge",
+            f"ppstime_host_pending_confirmations {state['host_pending_count']}",
+        ]
+    )
+    host_observation = state.get("last_host_observation") or {}
+    host_summary = host_observation.get("summary") or {}
+    filesystems = host_summary.get("filesystems") or {}
+    for metric_name, key, help_text in (
+        (
+            "ppstime_host_filesystem_available_bytes",
+            "available_bytes",
+            "Bytes available to unprivileged processes.",
+        ),
+        (
+            "ppstime_host_filesystem_available_percent",
+            "available_percent",
+            "Percentage of filesystem bytes available.",
+        ),
+        (
+            "ppstime_host_filesystem_inode_available_percent",
+            "inode_available_percent",
+            "Percentage of filesystem inodes available.",
+        ),
+        (
+            "ppstime_host_filesystem_read_only",
+            "read_only",
+            "Whether the filesystem is mounted read-only.",
+        ),
+    ):
+        values: list[str] = []
+        for name in ("root", "boot"):
+            filesystem = filesystems.get(name) or {}
+            value = filesystem.get(key)
+            if value is not None:
+                numeric_value = int(value) if isinstance(value, bool) else value
+                values.append(
+                    f'{metric_name}{{filesystem="{name}"}} {numeric_value}'
+                )
+        if values:
+            lines.extend(
+                [
+                    f"# HELP {metric_name} {help_text}",
+                    f"# TYPE {metric_name} gauge",
+                    *values,
+                ]
+            )
+    scalar_metrics = (
+        (
+            "ppstime_host_temperature_celsius",
+            host_summary.get("temperature_celsius"),
+            "Raspberry Pi CPU temperature in degrees Celsius.",
+        ),
+        (
+            "ppstime_host_throttled_flags",
+            (host_summary.get("throttling") or {}).get("flags"),
+            "Raspberry Pi firmware throttling bit field.",
+        ),
+        (
+            "ppstime_host_root_filesystem_errors",
+            host_summary.get("root_filesystem_errors"),
+            "Persistent ext4 error count for the root filesystem.",
+        ),
+        (
+            "ppstime_host_update_success_age_seconds",
+            (host_summary.get("updates") or {}).get("success_age_seconds"),
+            "Age of the last successful OS update check.",
+        ),
+    )
+    for metric_name, value, help_text in scalar_metrics:
+        if value is not None:
+            lines.extend(
+                [
+                    f"# HELP {metric_name} {help_text}",
+                    f"# TYPE {metric_name} gauge",
+                    f"{metric_name} {value}",
+                ]
+            )
+    updates = host_summary.get("updates") or {}
+    source_values = {
+        "temperature": host_summary.get("temperature_celsius") is not None,
+        "throttling": bool((host_summary.get("throttling") or {}).get("available")),
+        "ext4_errors": host_summary.get("root_filesystem_errors") is not None,
+        "update_marker": updates.get("status") in {"SUCCESS", "FAILED"},
+    }
+    lines.extend(
+        [
+            "# HELP ppstime_host_source_available Whether a host data source is available.",
+            "# TYPE ppstime_host_source_available gauge",
+            *(
+                f'ppstime_host_source_available{{source="{source}"}} {1 if value else 0}'
+                for source, value in source_values.items()
+            ),
+            "# HELP ppstime_host_update_status Current bounded OS update marker state.",
+            "# TYPE ppstime_host_update_status gauge",
+            *(
+                f'ppstime_host_update_status{{status="{status}"}} '
+                f"{1 if updates.get('status') == status else 0}"
+                for status in ("UNKNOWN", "SUCCESS", "FAILED")
+            ),
+        ]
+    )
+    reboot_required = updates.get("reboot_required")
+    if reboot_required is not None:
+        lines.extend(
+            [
+                "# HELP ppstime_host_update_reboot_required Whether an OS reboot is pending.",
+                "# TYPE ppstime_host_update_reboot_required gauge",
+                f"ppstime_host_update_reboot_required {1 if reboot_required else 0}",
+            ]
+        )
     return "\n".join(lines)
 
 
 def update_health(args: argparse.Namespace, now: datetime, monotonic: float) -> int:
     try:
         state = load_state(args.state_file)
+    except HealthError as exc:
+        print(f"PPSPi health warning: {exc}")
+        return 0
+
+    now_text = format_timestamp(now)
+    state["last_timing_attempt_at"] = now_text
+    transition: dict[str, Any] | None = None
+    try:
         summary = collect_status(args.status_json, args.status_command)
         raw_state, reasons = classify_status(summary)
         state, transition = update_state(
@@ -526,11 +1035,47 @@ def update_health(args: argparse.Namespace, now: datetime, monotonic: float) -> 
             monotonic,
             args.confirmations,
         )
+        state["last_timing_success_at"] = now_text
+        state["timing_collection_available"] = True
+    except HealthError as exc:
+        print(f"PPSPi health warning: {exc}")
+        state["timing_collection_available"] = False
+
+    host_transition: dict[str, Any] | None = None
+    state["last_host_attempt_at"] = now_text
+    try:
+        host_raw_state, host_reasons, host_summary = collect_host_status(
+            args.host_status_json, args.host_status_command
+        )
+        state["last_host_success_at"] = now_text
+        state["host_collection_available"] = True
+    except HealthError as exc:
+        print(f"PPSPi host health warning: {exc}")
+        state["host_collection_available"] = False
+        host_raw_state = "WARNING"
+        host_reasons = ["host_collection_failed"]
+        host_summary = {"collection_available": False}
+
+    try:
+        state, host_transition = update_host_state(
+            state,
+            host_raw_state,
+            host_reasons,
+            host_summary,
+            now,
+            monotonic,
+            args.confirmations,
+        )
+    except HealthError as exc:
+        print(f"PPSPi host health warning: {exc}")
+
+    try:
         write_state(args.state_file, state)
     except HealthError as exc:
         print(f"PPSPi health warning: {exc}")
         return 0
 
+    hook_deadline = time.monotonic() + HOOK_TOTAL_BUDGET_SECONDS
     if transition is not None:
         duration = transition["previous_duration_seconds"]
         print(
@@ -541,13 +1086,45 @@ def update_health(args: argparse.Namespace, now: datetime, monotonic: float) -> 
         )
         should_run_hooks = transition["from"] != "UNKNOWN" or transition["to"] != "HEALTHY_PPS"
         if should_run_hooks:
-            for warning in run_hooks(args.hook_dir, transition):
+            for warning in run_hooks(
+                args.hook_dir,
+                transition,
+                domain="timing",
+                deadline=hook_deadline,
+            ):
                 print(f"PPSPi health warning: {warning}")
     elif state["pending_state"] is not None:
         print(
             "PPSPi health pending: "
             f"current={state['state']} observed={state['pending_state']} "
             f"confirmation={state['pending_count']}/{args.confirmations}"
+        )
+    if host_transition is not None:
+        duration = host_transition["previous_duration_seconds"]
+        print(
+            "PPSPi host health transition: "
+            f"from={host_transition['from']} to={host_transition['to']} "
+            f"at={host_transition['at']} "
+            f"previous_duration_seconds={duration if duration is not None else 'unknown'} "
+            f"reasons={','.join(host_transition['reasons']) or 'none'}"
+        )
+        should_run_hooks = (
+            host_transition["from"] != "UNKNOWN"
+            or host_transition["to"] != "HEALTHY"
+        )
+        if should_run_hooks:
+            for warning in run_hooks(
+                args.hook_dir,
+                host_transition,
+                domain="host",
+                deadline=hook_deadline,
+            ):
+                print(f"PPSPi host health warning: {warning}")
+    elif state["host_pending_state"] is not None:
+        print(
+            "PPSPi host health pending: "
+            f"current={state['host_state']} observed={state['host_pending_state']} "
+            f"confirmation={state['host_pending_count']}/{args.confirmations}"
         )
     return 0
 
@@ -571,6 +1148,13 @@ def main() -> int:
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--status-json", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--host-status-command",
+        type=Path,
+        default=DEFAULT_HOST_STATUS_COMMAND,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument("--host-status-json", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--confirmations", type=int, default=CONFIRMATIONS, help=argparse.SUPPRESS)
     parser.add_argument("--now", help=argparse.SUPPRESS)
     parser.add_argument("--monotonic-seconds", type=float, help=argparse.SUPPRESS)

@@ -56,6 +56,14 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue(backup_link.is_symlink())
             self.assertEqual(backup_link.readlink(), Path("/usr/lib/ppstime/ppstime-backup"))
             self.assertTrue((root / "usr" / "lib" / "ppstime" / "ppstime-backup").is_file())
+            host_health_link = root / "usr" / "local" / "sbin" / "ppstime-host-health"
+            self.assertTrue(host_health_link.is_symlink())
+            self.assertEqual(
+                host_health_link.readlink(), Path("/usr/lib/ppstime/ppstime-host-health")
+            )
+            self.assertTrue(
+                (root / "usr" / "lib" / "ppstime" / "ppstime-host-health").is_file()
+            )
             health_link = root / "usr" / "local" / "sbin" / "ppstime-health"
             self.assertTrue(health_link.is_symlink())
             self.assertEqual(health_link.readlink(), Path("/usr/lib/ppstime/ppstime-health"))
@@ -67,6 +75,7 @@ class InstallerTests(unittest.TestCase):
             self.assertIn("RuntimeDirectory=ppstime", health_service)
             self.assertIn("RuntimeDirectoryPreserve=yes", health_service)
             self.assertIn("ProtectSystem=strict", health_service)
+            self.assertIn("TimeoutStartSec=75s", health_service)
             health_timer = (
                 root / "etc" / "systemd" / "system" / "ppstime-healthcheck.timer"
             ).read_text(encoding="utf-8")

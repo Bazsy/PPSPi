@@ -52,6 +52,21 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("/usr/sbin/hwclock", image_validator)
         self.assertIn("/etc/modules-load.d/ppstime.conf", image_validator)
 
+    def test_host_health_dependencies_are_in_both_install_paths(self) -> None:
+        install_script = (PROJECT_ROOT / "scripts" / "install.sh").read_text(
+            encoding="utf-8"
+        )
+        image_packages = (
+            PROJECT_ROOT / "pi-gen" / "stage-pps-pi" / "00-packages" / "00-packages"
+        ).read_text(encoding="utf-8")
+        image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("raspi-utils", install_script)
+        self.assertIn("raspi-utils", image_packages.split())
+        self.assertIn("/usr/bin/vcgencmd", image_validator)
+        self.assertIn("/usr/lib/ppstime/ppstime-host-health", image_validator)
+
     def test_image_removes_only_missing_cloud_init_module(self) -> None:
         stage_script = (
             PROJECT_ROOT / "pi-gen" / "stage-pps-pi" / "01-install" / "00-run.sh"

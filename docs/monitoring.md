@@ -4,6 +4,10 @@ PPSPi monitors timing health without changing Chrony, GPSD, kernel PPS, or RTC
 state. Monitoring never restarts services or selects a time source. Chrony
 remains solely responsible for source selection and stale-source aging.
 
+The same timer also tracks an independent Raspberry Pi host state for storage,
+temperature, throttling, filesystem errors, and update freshness. Host warnings
+never relabel timing state. See [host health monitoring](host-health.md).
+
 ## Confirmed health states
 
 `ppstime-healthcheck.timer` samples `ppstime-status --json`. Two consecutive
@@ -60,8 +64,8 @@ monitoring problem cannot create a systemd restart loop or alter timing.
 ppstime-health --prometheus
 ```
 
-It includes one-hot confirmed-state gauges, current-state duration, last-check
-timestamp, and pending-confirmation count. PPSPi does not install or expose a
+It includes one-hot timing/host state gauges, durations, last-check timestamp,
+pending confirmations, and bounded host resource metrics. PPSPi does not install or expose a
 metrics server. When an existing node exporter textfile collector is used, write
 the output atomically from a separate operator-managed timer:
 
@@ -89,12 +93,13 @@ The directory and each hook must:
 - be a regular, non-symlink file;
 - have its owner execute bit set.
 
-Each hook has a ten-second timeout, all hooks share a 15-second total budget,
-and a timeout kills the hook's process group. Hooks receive only this minimal
-environment:
+Each hook has a ten-second timeout, all timing and host hooks in one sample cycle
+share a 15-second total budget, and a timeout kills the hook's process group.
+Hooks receive only this minimal environment:
 
 | Variable | Value |
 | --- | --- |
+| `PPSTIME_HEALTH_DOMAIN` | `timing` or `host`. |
 | `PPSTIME_HEALTH_FROM` | Previous confirmed state. |
 | `PPSTIME_HEALTH_TO` | New confirmed state. |
 | `PPSTIME_HEALTH_AT` | UTC transition timestamp. |

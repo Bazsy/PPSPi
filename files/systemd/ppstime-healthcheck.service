@@ -1,11 +1,11 @@
 [Unit]
-Description=PPSPi passive timing health check
+Description=PPSPi passive timing and host health check
 After=chrony.service gpsd.service
 
 [Service]
 Type=oneshot
 ExecStart=/usr/lib/ppstime/ppstime-healthcheck
-TimeoutStartSec=45s
+TimeoutStartSec=75s
 Nice=10
 UMask=0027
 RuntimeDirectory=ppstime

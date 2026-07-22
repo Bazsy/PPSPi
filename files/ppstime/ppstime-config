@@ -49,7 +49,10 @@ def main() -> int:
             updated[args.key] = args.value
             validate_config(updated)
             atomic_write(args.config, config_to_env(updated), mode=0o644)
-            print(f"Updated {args.key}; run 'ppstime-config apply' to activate it")
+            if args.key.startswith("HOST_"):
+                print(f"Updated {args.key}; it takes effect on the next host-health sample")
+            else:
+                print(f"Updated {args.key}; run 'ppstime-config apply' to activate it")
             return 0
 
         require_root()

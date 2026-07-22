@@ -32,6 +32,7 @@ COMMANDS = {
         "i2c-tools",
         "jq",
         "python3",
+        "raspi-utils",
     ],
     "systemd-chrony.txt": ["systemctl", "status", "--no-pager", "chrony.service"],
     "systemd-gpsd.txt": ["systemctl", "status", "--no-pager", "gpsd.service"],
@@ -86,6 +87,21 @@ def write_health_state(path: Path) -> None:
     else:
         payload = {
             "error": result.stderr.strip() or "health state unavailable",
+            "exit_code": result.returncode,
+        }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def write_host_health(path: Path) -> None:
+    result = run_command(["/usr/lib/ppstime/ppstime-host-health", "--json"], timeout=10)
+    if result.returncode == 0:
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            payload = {"error": f"host-health command returned invalid JSON: {exc}"}
+    else:
+        payload = {
+            "error": result.stderr.strip() or "host health unavailable",
             "exit_code": result.returncode,
         }
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -169,6 +185,7 @@ def main() -> int:
         for filename, command in COMMANDS.items():
             write_command(bundle / filename, command)
         write_health_state(bundle / "health-state.json")
+        write_host_health(bundle / "host-health.json")
         write_command(bundle / "ppstest.txt", ["ppstest", config["PPS_DEVICE"]], timeout=3)
         write_command(bundle / "gpspipe.txt", ["gpspipe", "-w", "-n", "10"], timeout=10)
         write_command(
