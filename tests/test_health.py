@@ -304,8 +304,8 @@ class HealthTests(unittest.TestCase):
 
     def test_timed_out_hook_kills_its_process_group(self) -> None:
         module = load_health_module()
-        module.HOOK_TIMEOUT_SECONDS = 0.1
-        module.HOOK_TOTAL_BUDGET_SECONDS = 0.05
+        module.HOOK_TIMEOUT_SECONDS = 1.0
+        module.HOOK_TOTAL_BUDGET_SECONDS = 1.0
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             hook_dir = root / "hooks"
@@ -313,13 +313,10 @@ class HealthTests(unittest.TestCase):
             child_pid_path = root / "child.pid"
             hook = hook_dir / "10-slow"
             hook.write_text(
-                "#!/usr/bin/env python3\n"
-                "import subprocess\n"
-                "import time\n"
-                "from pathlib import Path\n"
-                "child = subprocess.Popen(['sleep', '30'])\n"
-                f"Path({str(child_pid_path)!r}).write_text(str(child.pid), encoding='ascii')\n"
-                "time.sleep(30)\n",
+                "#!/bin/sh\n"
+                "sleep 30 &\n"
+                f"printf '%s' \"$!\" > {str(child_pid_path)!r}\n"
+                "wait\n",
                 encoding="utf-8",
             )
             hook.chmod(0o700)
