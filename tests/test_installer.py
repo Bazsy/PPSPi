@@ -80,6 +80,43 @@ class InstallerTests(unittest.TestCase):
                 root / "etc" / "systemd" / "system" / "ppstime-healthcheck.timer"
             ).read_text(encoding="utf-8")
             self.assertIn("OnUnitActiveSec=2min", health_timer)
+            maintenance_timer = (
+                root / "etc" / "systemd" / "system" / "ppstime-maintenance.timer"
+            ).read_text(encoding="utf-8")
+            self.assertIn("OnCalendar=Sun *-*-* 04:00:00 UTC", maintenance_timer)
+            policy = (
+                root
+                / "etc"
+                / "apt"
+                / "apt.conf.d"
+                / "52ppstime-unattended-upgrades"
+            ).read_text(encoding="utf-8")
+            self.assertIn("${distro_codename}-security", policy)
+            self.assertIn('Automatic-Reboot "false"', policy)
+            state_dir = root / "var" / "lib" / "ppstime"
+            self.assertTrue(state_dir.is_dir())
+            self.assertEqual(stat.S_IMODE(state_dir.stat().st_mode), 0o755)
+            post_boot_timer = (
+                root
+                / "etc"
+                / "systemd"
+                / "system"
+                / "ppstime-maintenance-post-boot.timer"
+            ).read_text(encoding="utf-8")
+            self.assertIn("OnBootSec=10min", post_boot_timer)
+            maintenance_service = (
+                root / "etc" / "systemd" / "system" / "ppstime-maintenance.service"
+            ).read_text(encoding="utf-8")
+            self.assertNotIn("ProtectKernelModules=true", maintenance_service)
+            self.assertNotIn("RestrictSUIDSGID=true", maintenance_service)
+            post_boot_service = (
+                root
+                / "etc"
+                / "systemd"
+                / "system"
+                / "ppstime-maintenance-post-boot.service"
+            ).read_text(encoding="utf-8")
+            self.assertIn("TimeoutStartSec=4min", post_boot_service)
             self.assertEqual(
                 (root / "etc" / "modules-load.d" / "ppstime.conf").read_text(
                     encoding="utf-8"

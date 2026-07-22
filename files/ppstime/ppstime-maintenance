@@ -1,0 +1,437 @@
+#!/usr/bin/env python3
+"""Run bounded PPSPi OS maintenance and acknowledge required reboots."""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from contextlib import ExitStack, contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from ppstime_core import ConfigError, parse_env_file, parse_key_value_output, validate_config
+
+STATE_SCHEMA = 1
+REBOOT_SCHEMA = 1
+POST_BOOT_SCHEMA = 1
+DEFAULT_CONFIG = Path("/etc/ppstime/ppstime.env")
+DEFAULT_STATE = Path("/var/lib/ppstime/os-update-state.json")
+DEFAULT_REBOOT_STATE = Path("/var/lib/ppstime/reboot-pending.json")
+DEFAULT_POST_BOOT_STATE = Path("/var/lib/ppstime/maintenance-post-boot.json")
+DEFAULT_BOOT_ID = Path("/proc/sys/kernel/random/boot_id")
+DEFAULT_REBOOT_REQUIRED = Path("/run/reboot-required")
+DEFAULT_LOCK = Path("/run/lock/ppstime-maintenance.lock")
+DEFAULT_PACKAGE_LOCKS = (
+    Path("/var/cache/apt/archives/lock"),
+    Path("/var/lib/apt/lists/lock"),
+    Path("/var/lib/dpkg/lock"),
+    Path("/var/lib/dpkg/lock-frontend"),
+)
+PACKAGE_LOCK_TIMEOUT = 5 * 60
+COMMAND_TIMEOUT = 75 * 60
+
+
+class MaintenanceError(ValueError):
+    """Raised when unattended maintenance cannot complete safely."""
+
+
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def format_time(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_time(value: Any, name: str) -> datetime:
+    if not isinstance(value, str):
+        raise MaintenanceError(f"{name} must be a UTC timestamp string")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise MaintenanceError(f"{name} is invalid") from exc
+    if parsed.tzinfo is None:
+        raise MaintenanceError(f"{name} must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def atomic_json(path: Path, payload: dict[str, Any], mode: int = 0o644) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, indent=2, sort_keys=True, allow_nan=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def read_boot_id(path: Path) -> str:
+    try:
+        value = path.read_text(encoding="ascii").strip()
+    except OSError as exc:
+        raise MaintenanceError(f"cannot read boot ID: {exc}") from exc
+    if not value or any(character in value for character in ("\x00", "\n", "\r")):
+        raise MaintenanceError("boot ID is malformed")
+    return value
+
+
+def run_command(
+    command: list[str], timeout: int = COMMAND_TIMEOUT
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout,
+            env={"HOME": "/root", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"},
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise MaintenanceError(f"cannot run {command[0]}: {exc}") from exc
+
+
+def update_state(
+    path: Path,
+    *,
+    checked_at: datetime,
+    result: str,
+    reboot_required: bool,
+    successful: bool,
+) -> None:
+    last_success: str | None = None
+    if path.exists():
+        try:
+            previous = json.loads(path.read_text(encoding="utf-8"))
+            value = previous.get("last_success_utc") if isinstance(previous, dict) else None
+            last_success = value if isinstance(value, str) else None
+        except (OSError, json.JSONDecodeError):
+            last_success = None
+    if successful:
+        last_success = format_time(checked_at)
+    atomic_json(
+        path,
+        {
+            "schema_version": STATE_SCHEMA,
+            "last_check_utc": format_time(checked_at),
+            "last_success_utc": last_success,
+            "result": result,
+            "reboot_required": reboot_required,
+        },
+    )
+
+
+def synchronized_for_rtc(command: list[str]) -> bool:
+    result = run_command(command, timeout=30)
+    fields = parse_key_value_output(result.stdout)
+    return result.returncode == 0 and fields.get("Leap status") == "Normal"
+
+
+def package_audit_clean(command: list[str]) -> bool:
+    result = run_command(command, timeout=120)
+    return result.returncode == 0 and not result.stdout.strip() and not result.stderr.strip()
+
+
+def acquire_lock(path: Path) -> Any:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stream = path.open("a+", encoding="ascii")
+    try:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        stream.close()
+        raise MaintenanceError("another PPSPi maintenance run is active") from exc
+    return stream
+
+
+@contextmanager
+def acquire_package_locks(paths: list[Path], timeout: float) -> Any:
+    deadline = time.monotonic() + timeout
+    with ExitStack() as stack:
+        streams = []
+        for path in sorted(paths, key=str):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            stream = stack.enter_context(path.open("a+", encoding="ascii"))
+            while True:
+                try:
+                    fcntl.lockf(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError as exc:
+                    if time.monotonic() >= deadline:
+                        raise MaintenanceError(
+                            f"timed out waiting for package lock {path}"
+                        ) from exc
+                    time.sleep(1)
+            streams.append(stream)
+        yield streams
+
+
+def run_maintenance(args: argparse.Namespace) -> int:
+    config = parse_env_file(args.config)
+    validate_config(config)
+    if config["OS_UPDATES_ENABLED"] != "true":
+        print("PPSPi OS maintenance is disabled")
+        return 0
+    if os.geteuid() != 0 and not args.allow_non_root:
+        raise MaintenanceError("OS maintenance must run as root")
+
+    with acquire_lock(args.lock_file):
+        checked_at = now_utc()
+        reboot_required = args.reboot_required.exists()
+        reboot_marker_created = False
+        try:
+            update = run_command(args.update_command)
+            if update.returncode != 0:
+                raise MaintenanceError(f"package index update exited {update.returncode}")
+            upgrade = run_command(args.upgrade_command)
+            if upgrade.returncode != 0:
+                raise MaintenanceError(f"unattended-upgrade exited {upgrade.returncode}")
+            if not package_audit_clean(args.audit_command):
+                raise MaintenanceError("package audit reports an incomplete package state")
+            reboot_required = args.reboot_required.exists()
+            if reboot_required and config["OS_REBOOT_ENABLED"] == "true":
+                if config["RTC_ENABLED"] == "true":
+                    if not synchronized_for_rtc(args.tracking_command):
+                        raise MaintenanceError(
+                            "required reboot deferred: Chrony is not synchronized"
+                        )
+                    rtc = run_command(args.rtc_command, timeout=60)
+                    if rtc.returncode != 0:
+                        raise MaintenanceError("required reboot deferred: RTC save failed")
+                with acquire_package_locks(
+                    args.package_lock_files, args.package_lock_timeout
+                ):
+                    if not package_audit_clean(args.audit_command):
+                        raise MaintenanceError(
+                            "required reboot deferred: package audit is not clean"
+                        )
+                    boot_id = read_boot_id(args.boot_id_file)
+                    atomic_json(
+                        args.reboot_state,
+                        {
+                            "schema_version": REBOOT_SCHEMA,
+                            "reason": "os_reboot_required",
+                            "requested_utc": format_time(now_utc()),
+                            "requested_boot_id": boot_id,
+                        },
+                    )
+                    reboot_marker_created = True
+                    update_state(
+                        args.state_file,
+                        checked_at=checked_at,
+                        result="SUCCESS",
+                        reboot_required=True,
+                        successful=True,
+                    )
+                    reboot = run_command(args.reboot_command, timeout=60)
+                    if reboot.returncode != 0:
+                        raise MaintenanceError(
+                            f"system reboot request exited {reboot.returncode}"
+                        )
+            else:
+                update_state(
+                    args.state_file,
+                    checked_at=checked_at,
+                    result="SUCCESS",
+                    reboot_required=reboot_required,
+                    successful=True,
+                )
+        except (MaintenanceError, OSError):
+            if reboot_marker_created:
+                args.reboot_state.unlink(missing_ok=True)
+            try:
+                update_state(
+                    args.state_file,
+                    checked_at=checked_at,
+                    result="FAILED",
+                    reboot_required=reboot_required,
+                    successful=False,
+                )
+            except OSError:
+                pass
+            raise
+
+        if not reboot_required:
+            print("PPSPi OS maintenance completed; no reboot required")
+        elif config["OS_REBOOT_ENABLED"] != "true":
+            print("PPSPi OS maintenance completed; reboot is required but disabled")
+        else:
+            print("PPSPi OS maintenance completed; required reboot requested")
+        return 0
+
+
+def post_boot(args: argparse.Namespace) -> int:
+    if not args.reboot_state.exists():
+        print("No PPSPi maintenance reboot is awaiting acknowledgement")
+        return 0
+    try:
+        payload = json.loads(args.reboot_state.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise MaintenanceError(f"cannot read maintenance reboot marker: {exc}") from exc
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema_version", "reason", "requested_utc", "requested_boot_id"
+    }:
+        raise MaintenanceError("maintenance reboot marker schema is invalid")
+    if type(payload["schema_version"]) is not int or payload["schema_version"] != 1:
+        raise MaintenanceError("maintenance reboot marker version is invalid")
+    if payload["reason"] != "os_reboot_required":
+        raise MaintenanceError("maintenance reboot marker reason is invalid")
+    parse_time(payload["requested_utc"], "requested_utc")
+    if not isinstance(payload["requested_boot_id"], str) or not re.fullmatch(
+        r"[A-Za-z0-9-]{1,80}", payload["requested_boot_id"]
+    ):
+        raise MaintenanceError("maintenance reboot marker boot ID is invalid")
+    current_boot_id = read_boot_id(args.boot_id_file)
+    if payload["requested_boot_id"] == current_boot_id:
+        raise MaintenanceError("maintenance reboot marker belongs to the current boot")
+    deep = run_command(args.deep_test_command, timeout=120)
+    try:
+        deep_payload = json.loads(deep.stdout)
+    except json.JSONDecodeError:
+        deep_payload = {}
+    deep_ok = deep.returncode == 0 and deep_payload.get("ok") is True
+    health = run_command(args.health_command, timeout=60)
+    try:
+        health_payload = json.loads(health.stdout)
+    except json.JSONDecodeError:
+        health_payload = {}
+    timing_state = health_payload.get("state")
+    host_state = health_payload.get("host_state")
+    if timing_state not in {
+        "UNKNOWN", "HEALTHY_PPS", "NETWORK_FALLBACK", "UNSYNCHRONIZED", "HARDWARE_ERROR"
+    }:
+        timing_state = "UNKNOWN"
+    if host_state not in {"UNKNOWN", "HEALTHY", "WARNING", "CRITICAL"}:
+        host_state = "UNKNOWN"
+    evidence = {
+        "schema_version": POST_BOOT_SCHEMA,
+        "reason": payload["reason"],
+        "requested_utc": payload["requested_utc"],
+        "requested_boot_id": payload["requested_boot_id"],
+        "completed_boot_id": current_boot_id,
+        "checked_utc": format_time(now_utc()),
+        "deep_test_ok": deep_ok,
+        "timing_state": timing_state,
+        "host_state": host_state,
+    }
+    atomic_json(args.post_boot_state, evidence)
+    args.reboot_state.unlink()
+    if args.state_file.exists():
+        try:
+            state = json.loads(args.state_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise MaintenanceError(f"cannot update OS maintenance state: {exc}") from exc
+        if isinstance(state, dict):
+            state["reboot_required"] = args.reboot_required.exists()
+            atomic_json(args.state_file, state)
+    print("PPSPi maintenance reboot acknowledged after boot-ID change")
+    if not deep_ok:
+        raise MaintenanceError("post-boot deep health validation failed")
+    return 0
+
+
+def status(args: argparse.Namespace) -> int:
+    payload: dict[str, Any] = {
+        "state": None,
+        "reboot_pending": None,
+        "post_boot": None,
+    }
+    for key, path in (
+        ("state", args.state_file),
+        ("reboot_pending", args.reboot_state),
+        ("post_boot", args.post_boot_state),
+    ):
+        if path.exists():
+            try:
+                payload[key] = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise MaintenanceError(f"cannot read {path}: {exc}") from exc
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("run", "post-boot", "status"))
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE)
+    parser.add_argument("--reboot-state", type=Path, default=DEFAULT_REBOOT_STATE)
+    parser.add_argument("--post-boot-state", type=Path, default=DEFAULT_POST_BOOT_STATE)
+    parser.add_argument("--boot-id-file", type=Path, default=DEFAULT_BOOT_ID)
+    parser.add_argument("--reboot-required", type=Path, default=DEFAULT_REBOOT_REQUIRED)
+    parser.add_argument("--lock-file", type=Path, default=DEFAULT_LOCK)
+    parser.add_argument(
+        "--package-lock-file",
+        dest="package_lock_files",
+        action="append",
+        type=Path,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--package-lock-timeout",
+        type=float,
+        default=PACKAGE_LOCK_TIMEOUT,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--update-command",
+        nargs="+",
+        default=["apt-get", "-o", "DPkg::Lock::Timeout=300", "update"],
+    )
+    parser.add_argument("--upgrade-command", nargs="+", default=["unattended-upgrade", "--verbose"])
+    parser.add_argument("--audit-command", nargs="+", default=["dpkg", "--audit"])
+    parser.add_argument("--tracking-command", nargs="+", default=["chronyc", "tracking"])
+    parser.add_argument(
+        "--rtc-command",
+        nargs="+",
+        default=["/usr/lib/ppstime/ppstime-rtc", "save", "--required"],
+    )
+    parser.add_argument("--reboot-command", nargs="+", default=["systemctl", "reboot"])
+    parser.add_argument(
+        "--deep-test-command",
+        nargs="+",
+        default=["/usr/lib/ppstime/ppstime-test", "--json"],
+    )
+    parser.add_argument(
+        "--health-command",
+        nargs="+",
+        default=["/usr/lib/ppstime/ppstime-health", "--json"],
+    )
+    parser.add_argument("--allow-non-root", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.package_lock_files is None:
+        args.package_lock_files = list(DEFAULT_PACKAGE_LOCKS)
+    if args.package_lock_timeout < 0:
+        parser.error("--package-lock-timeout must be non-negative")
+    return args
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        if args.action == "run":
+            return run_maintenance(args)
+        if args.action == "post-boot":
+            return post_boot(args)
+        return status(args)
+    except (ConfigError, MaintenanceError, OSError) as exc:
+        print(f"ppstime-maintenance: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

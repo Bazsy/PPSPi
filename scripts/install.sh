@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 SOURCE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly SOURCE_ROOT
-readonly PACKAGES=(chrony gpsd gpsd-clients pps-tools i2c-tools jq python3 raspi-utils util-linux-extra)
+readonly PACKAGES=(chrony gpsd gpsd-clients pps-tools i2c-tools jq python3 raspi-utils unattended-upgrades util-linux-extra)
 
 target_root="/"
 profile=""
@@ -138,7 +138,7 @@ copy_file "${SOURCE_ROOT}/files/ppstime/ppstime_core.py" "/usr/lib/ppstime/ppsti
 copy_file "${SCRIPT_DIR}/configure-profile.py" "/usr/lib/ppstime/configure-profile.py" 0755
 for command_name in ppstime-status ppstime-test ppstime-config ppstime-diagnostics \
     ppstime-backup ppstime-host-health ppstime-wait-devices ppstime-rtc \
-    ppstime-health ppstime-healthcheck; do
+    ppstime-health ppstime-healthcheck ppstime-maintenance; do
     copy_file "${SOURCE_ROOT}/files/ppstime/${command_name}" "/usr/lib/ppstime/${command_name}" 0755
 done
 run install -d -m 0755 "$(rooted /usr/local/sbin)"
@@ -148,6 +148,7 @@ for public_command in ppstime-status ppstime-test ppstime-config ppstime-diagnos
 done
 run ln -sfnT "/usr/lib/ppstime/ppstime-health" "$(rooted /usr/local/sbin/ppstime-health)"
 run install -d -m 0755 "$(rooted /etc/ppstime/health-transition.d)"
+run install -d -m 0755 "$(rooted /var/lib/ppstime)"
 
 run install -d -m 0755 "$(rooted /usr/share/ppstime/config/profiles)"
 copy_file "${SOURCE_ROOT}/config/default.env" "/usr/share/ppstime/config/default.env" 0644
@@ -183,6 +184,13 @@ if [[ "${target_root}" == "/" && "${dry_run}" == "false" ]]; then
         systemctl disable --now gpsd.service gpsd.socket || true
     fi
     systemctl enable ppstime-healthcheck.timer
+    systemctl disable --now apt-daily.timer apt-daily-upgrade.timer
+    systemctl enable ppstime-maintenance-post-boot.timer
+    if grep -qx 'OS_UPDATES_ENABLED=true' /etc/ppstime/ppstime.env; then
+        systemctl enable ppstime-maintenance.timer
+    else
+        systemctl disable --now ppstime-maintenance.timer || true
+    fi
     if grep -qx 'RTC_ENABLED=true' /etc/ppstime/ppstime.env; then
         systemctl enable ppstime-rtc-restore.service ppstime-rtc-save.timer
     else

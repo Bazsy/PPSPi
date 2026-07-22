@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from ppstime_core import (
+    MIGRATABLE_CONFIG_DEFAULTS,
     ConfigError,
-    HOST_THRESHOLD_DEFAULTS,
     config_to_env,
     load_config,
     model_is_supported,
@@ -133,9 +133,15 @@ def load_active_config(
     path: Path, *, allow_legacy_host_thresholds: bool = False
 ) -> dict[str, str]:
     config = parse_env_file(path)
-    missing_host_keys = set(HOST_THRESHOLD_DEFAULTS) - set(config)
-    if allow_legacy_host_thresholds and missing_host_keys == set(HOST_THRESHOLD_DEFAULTS):
-        config.update(HOST_THRESHOLD_DEFAULTS)
+    missing_migratable_keys = set(MIGRATABLE_CONFIG_DEFAULTS) - set(config)
+    if allow_legacy_host_thresholds and missing_migratable_keys:
+        config.update(
+            {
+                key: value
+                for key, value in MIGRATABLE_CONFIG_DEFAULTS.items()
+                if key in missing_migratable_keys
+            }
+        )
     validate_config(config)
     return config
 
@@ -326,6 +332,8 @@ def managed_paths(root: Path) -> list[Path]:
         rooted(root, "/etc/ppstime/ppstime.env"),
         rooted(root, "/etc/chrony/conf.d/ppstime.conf"),
         rooted(root, "/etc/default/gpsd"),
+        rooted(root, "/etc/apt/apt.conf.d/52ppstime-unattended-upgrades"),
+        rooted(root, "/etc/systemd/system/ppstime-maintenance.timer"),
     ]
     for boot_root in ("/boot/firmware", "/boot"):
         for name in ("config.txt", "cmdline.txt"):

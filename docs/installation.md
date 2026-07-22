@@ -108,6 +108,8 @@ PPSPi owns these locations:
 - `/usr/lib/ppstime/` — implementation and internal commands;
 - `/usr/local/sbin/ppstime-*` — public command links;
 - `/etc/systemd/system/ppstime-*` — RTC and health units;
+- `/etc/apt/apt.conf.d/52ppstime-unattended-upgrades` — validated update policy;
+- `/var/lib/ppstime/` — non-secret update/reboot state;
 - Chrony and GPSD drop-in directories.
 
 Before changing storage, hardware, or PPSPi versions, create a portable backup:
@@ -119,6 +121,10 @@ ppstime-backup export --output "$HOME/ppstime-backup.tar.gz"
 See [configuration backup and disaster recovery](backup-restore.md). The archive
 contains PPSPi configuration only; recreate account, SSH, and Wi-Fi choices
 through Imager or an operator-managed encrypted system backup.
+
+`0.2.0-dev` also enables a weekly signed security-maintenance window. Review and
+adjust it before unattended deployment; see
+[unattended OS maintenance](maintenance.md).
 
 The installer detects `/boot/firmware/config.txt` and `cmdline.txt` first, then
 their legacy `/boot` locations. It adds one marked block to `config.txt` and

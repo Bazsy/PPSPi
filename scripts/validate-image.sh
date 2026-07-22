@@ -11,7 +11,7 @@ image_file="${1:-}"
     exit 2
 }
 
-for command_name in find grep jq losetup mount mountpoint umount xz; do
+for command_name in apt-config find grep jq losetup mount mountpoint systemd-analyze umount xz; do
     command -v "${command_name}" > /dev/null 2>&1 || {
         printf 'PPSPi image validation error: missing command %s\n' "${command_name}" >&2
         exit 2
@@ -82,6 +82,8 @@ sudo jq -e \
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-status" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-backup" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-host-health" ]]
+[[ -x "${root_mount}/usr/lib/ppstime/ppstime-maintenance" ]]
+[[ -x "${root_mount}/usr/bin/unattended-upgrade" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-health" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-healthcheck" ]]
 [[ -L "${root_mount}/usr/local/sbin/ppstime-health" ]]
@@ -92,6 +94,57 @@ sudo jq -e \
 [[ "$(sudo readlink "${root_mount}/usr/local/sbin/ppstime-health")" == "/usr/lib/ppstime/ppstime-health" ]]
 [[ -f "${root_mount}/etc/systemd/system/ppstime-healthcheck.service" ]]
 [[ -f "${root_mount}/etc/systemd/system/ppstime-healthcheck.timer" ]]
+[[ -f "${root_mount}/etc/systemd/system/ppstime-maintenance.service" ]]
+[[ -f "${root_mount}/etc/systemd/system/ppstime-maintenance.timer" ]]
+[[ -f "${root_mount}/etc/systemd/system/ppstime-maintenance-post-boot.service" ]]
+[[ -f "${root_mount}/etc/systemd/system/ppstime-maintenance-post-boot.timer" ]]
+[[ -f "${root_mount}/etc/apt/apt.conf.d/52ppstime-unattended-upgrades" ]]
+APT_CONFIG="${root_mount}/etc/apt/apt.conf.d/52ppstime-unattended-upgrades" \
+    apt-config dump > /dev/null
+apt_validation_config="${work_dir}/apt-validation.conf"
+cat > "${apt_validation_config}" << EOF
+Dir::Etc "${root_mount}/etc/apt";
+Dir::Etc::parts "apt.conf.d";
+EOF
+effective_apt="$(APT_CONFIG="${apt_validation_config}" apt-config dump)"
+printf '%s\n' "${effective_apt}" | grep -Fq '${distro_codename}-security'
+if printf '%s\n' "${effective_apt}" | grep -Eq \
+    'Unattended-Upgrade::Allowed-Origins:: .*'; then
+    printf 'PPSPi image validation error: security scope inherited allowed origins\n' >&2
+    exit 1
+fi
+if printf '%s\n' "${effective_apt}" | grep -Eq \
+    '(Origins-Pattern|Allowed-Origins)::[^ ]+ .*codename=\$\{distro_codename\}([",]|$)'; then
+    printf 'PPSPi image validation error: security scope inherited base Debian origins\n' >&2
+    exit 1
+fi
+sudo grep -Fq '${distro_codename}-security' \
+    "${root_mount}/etc/apt/apt.conf.d/52ppstime-unattended-upgrades"
+sudo grep -Fxq 'Unattended-Upgrade::Automatic-Reboot "false";' \
+    "${root_mount}/etc/apt/apt.conf.d/52ppstime-unattended-upgrades"
+sudo grep -Fxq 'StateDirectory=ppstime' \
+    "${root_mount}/etc/systemd/system/ppstime-maintenance.service"
+sudo grep -Fxq 'TimeoutStartSec=3h' \
+    "${root_mount}/etc/systemd/system/ppstime-maintenance.service"
+if sudo grep -Eq '^(ProtectKernelModules|RestrictSUIDSGID)=true$' \
+    "${root_mount}/etc/systemd/system/ppstime-maintenance.service"; then
+    printf 'PPSPi image validation error: package-incompatible maintenance sandbox\n' >&2
+    exit 1
+fi
+sudo grep -Fxq 'ProtectSystem=strict' \
+    "${root_mount}/etc/systemd/system/ppstime-maintenance-post-boot.service"
+sudo grep -Fxq 'TimeoutStartSec=4min' \
+    "${root_mount}/etc/systemd/system/ppstime-maintenance-post-boot.service"
+sudo grep -Fxq 'OnCalendar=Sun *-*-* 04:00:00 UTC' \
+    "${root_mount}/etc/systemd/system/ppstime-maintenance.timer"
+sudo grep -Fxq 'Persistent=true' \
+    "${root_mount}/etc/systemd/system/ppstime-maintenance.timer"
+sudo grep -Fxq 'RandomizedDelaySec=30min' \
+    "${root_mount}/etc/systemd/system/ppstime-maintenance.timer"
+sudo grep -Fxq 'OnBootSec=10min' \
+    "${root_mount}/etc/systemd/system/ppstime-maintenance-post-boot.timer"
+systemd-analyze calendar 'Sun *-*-* 04:00:00 UTC' > /dev/null
+[[ "$(sudo stat -c '%U:%G:%a' "${root_mount}/var/lib/ppstime")" == "root:root:755" ]]
 sudo grep -Fxq 'ExecStart=/usr/lib/ppstime/ppstime-healthcheck' \
     "${root_mount}/etc/systemd/system/ppstime-healthcheck.service"
 sudo grep -Fxq 'RuntimeDirectory=ppstime' \
@@ -114,6 +167,35 @@ health_timer_state="$(
         "${health_timer_state:-unknown}" >&2
     exit 1
 }
+maintenance_timer_state="$(
+    sudo systemctl --root="${root_mount}" is-enabled ppstime-maintenance.timer \
+        2> /dev/null || true
+)"
+[[ "${maintenance_timer_state}" == "enabled" ]] || {
+    printf 'PPSPi image validation error: maintenance timer state is %s, expected enabled\n' \
+        "${maintenance_timer_state:-unknown}" >&2
+    exit 1
+}
+post_boot_timer_state="$(
+    sudo systemctl --root="${root_mount}" is-enabled ppstime-maintenance-post-boot.timer \
+        2> /dev/null || true
+)"
+[[ "${post_boot_timer_state}" == "enabled" ]] || {
+    printf 'PPSPi image validation error: post-boot timer state is %s, expected enabled\n' \
+        "${post_boot_timer_state:-unknown}" >&2
+    exit 1
+}
+for apt_timer in apt-daily.timer apt-daily-upgrade.timer; do
+    apt_timer_state="$(
+        sudo systemctl --root="${root_mount}" is-enabled "${apt_timer}" \
+            2> /dev/null || true
+    )"
+    [[ "${apt_timer_state}" == "disabled" ]] || {
+        printf 'PPSPi image validation error: %s state is %s, expected disabled\n' \
+            "${apt_timer}" "${apt_timer_state:-unknown}" >&2
+        exit 1
+    }
+done
 [[ "$(sudo stat -c '%a' "${root_mount}/etc/ppstime/ppstime.env")" == "644" ]]
 sudo grep -Fxq 'HOST_DISK_WARNING_PERCENT=15.0' \
     "${root_mount}/etc/ppstime/ppstime.env"

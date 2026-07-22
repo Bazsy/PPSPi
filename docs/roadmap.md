@@ -36,7 +36,8 @@ and leave running:
    levels: [issue #64](https://github.com/Bazsy/PPSPi/issues/64);
 - one-file published installation through the Imager manifest:
    [issue #66](https://github.com/Bazsy/PPSPi/issues/66);
-- unattended signed OS security updates and a bounded weekly reboot window:
+- unattended signed OS security updates and a bounded weekly required-reboot
+   window (implemented in `0.2.0-dev`):
    [issue #67](https://github.com/Bazsy/PPSPi/issues/67);
 - verified PPSPi application update and rollback:
    [issue #68](https://github.com/Bazsy/PPSPi/issues/68);

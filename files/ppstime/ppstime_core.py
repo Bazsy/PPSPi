@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 class ConfigError(ValueError):
@@ -55,6 +56,13 @@ CONFIG_KEYS = frozenset(
         "HOST_TEMPERATURE_CRITICAL_C",
         "HOST_UPDATE_WARNING_HOURS",
         "HOST_UPDATE_CRITICAL_HOURS",
+        "OS_UPDATES_ENABLED",
+        "OS_UPDATE_SCOPE",
+        "OS_MAINTENANCE_DAY",
+        "OS_MAINTENANCE_TIME",
+        "OS_MAINTENANCE_TIMEZONE",
+        "OS_MAINTENANCE_RANDOM_DELAY_MINUTES",
+        "OS_REBOOT_ENABLED",
         "SSH_ENABLED",
         "DEFAULT_HOSTNAME",
         "SUPPORTED_MODEL_PATTERN",
@@ -71,8 +79,27 @@ HOST_THRESHOLD_DEFAULTS = {
     "HOST_UPDATE_WARNING_HOURS": "48.0",
     "HOST_UPDATE_CRITICAL_HOURS": "168.0",
 }
+OS_MAINTENANCE_DEFAULTS = {
+    "OS_UPDATES_ENABLED": "true",
+    "OS_UPDATE_SCOPE": "security",
+    "OS_MAINTENANCE_DAY": "Sun",
+    "OS_MAINTENANCE_TIME": "04:00",
+    "OS_MAINTENANCE_TIMEZONE": "UTC",
+    "OS_MAINTENANCE_RANDOM_DELAY_MINUTES": "30",
+    "OS_REBOOT_ENABLED": "true",
+}
+MIGRATABLE_CONFIG_DEFAULTS = {**HOST_THRESHOLD_DEFAULTS, **OS_MAINTENANCE_DEFAULTS}
 
-BOOLEAN_KEYS = frozenset({"GPSD_ENABLED", "RTC_ENABLED", "CHRONY_ENABLED", "SSH_ENABLED"})
+BOOLEAN_KEYS = frozenset(
+    {
+        "GPSD_ENABLED",
+        "RTC_ENABLED",
+        "CHRONY_ENABLED",
+        "OS_UPDATES_ENABLED",
+        "OS_REBOOT_ENABLED",
+        "SSH_ENABLED",
+    }
+)
 DEVICE_KEYS = frozenset({"GPS_DEVICE", "PPS_DEVICE", "RTC_DEVICE"})
 GPSD_BAUD_RATES = frozenset({4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800})
 SAFE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
@@ -312,6 +339,26 @@ def validate_config(config: Mapping[str, str]) -> None:
         < threshold_values["HOST_UPDATE_CRITICAL_HOURS"]
     ):
         raise ConfigError("HOST_UPDATE thresholds are invalid")
+    if config["OS_UPDATE_SCOPE"] not in {"security", "all"}:
+        raise ConfigError("OS_UPDATE_SCOPE must be security or all")
+    if config["OS_MAINTENANCE_DAY"] not in {
+        "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"
+    }:
+        raise ConfigError("OS_MAINTENANCE_DAY must be Mon through Sun")
+    if not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", config["OS_MAINTENANCE_TIME"]):
+        raise ConfigError("OS_MAINTENANCE_TIME must use 24-hour HH:MM")
+    if not re.fullmatch(r"UTC|[A-Za-z_]+(?:/[A-Za-z0-9_+.-]+)+", config["OS_MAINTENANCE_TIMEZONE"]):
+        raise ConfigError("OS_MAINTENANCE_TIMEZONE must be UTC or an IANA timezone")
+    try:
+        ZoneInfo(config["OS_MAINTENANCE_TIMEZONE"])
+    except ZoneInfoNotFoundError as exc:
+        raise ConfigError("OS_MAINTENANCE_TIMEZONE is not installed") from exc
+    try:
+        maintenance_delay = int(config["OS_MAINTENANCE_RANDOM_DELAY_MINUTES"])
+    except ValueError as exc:
+        raise ConfigError("OS_MAINTENANCE_RANDOM_DELAY_MINUTES must be an integer") from exc
+    if not 0 <= maintenance_delay <= 360:
+        raise ConfigError("OS_MAINTENANCE_RANDOM_DELAY_MINUTES must be between 0 and 360")
     try:
         re.compile(config["SUPPORTED_MODEL_PATTERN"])
     except re.error as exc:
@@ -433,6 +480,58 @@ def render_boot_block(config: Mapping[str, str]) -> str:
         lines.append(rtc_overlay)
     lines.append("# END PPSPi managed configuration")
     return "\n".join(lines)
+
+
+def render_unattended_upgrades(config: Mapping[str, str]) -> str:
+    """Render PPSPi's explicit unattended-upgrade origin and reboot policy."""
+
+    validate_config(config)
+    origins = [
+        '        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";'
+    ]
+    if config["OS_UPDATE_SCOPE"] == "all":
+        origins.extend(
+            [
+                '        "origin=Debian,codename=${distro_codename},label=Debian";',
+                '        "origin=Debian,codename=${distro_codename}-updates,label=Debian";',
+                '        "origin=Raspbian,codename=${distro_codename},label=Raspbian";',
+                '        "origin=Raspberry Pi Foundation,codename=${distro_codename}";',
+            ]
+        )
+    return "\n".join(
+        [
+            "// Managed by PPSPi. Package installation runs only in its maintenance timer.",
+            'APT::Periodic::Enable "0";',
+            "#clear Unattended-Upgrade::Allowed-Origins;",
+            "#clear Unattended-Upgrade::Origins-Pattern;",
+            "Unattended-Upgrade::Origins-Pattern {",
+            *origins,
+            "};",
+            'Unattended-Upgrade::Automatic-Reboot "false";',
+            'Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";',
+            'Unattended-Upgrade::Remove-New-Unused-Dependencies "true";',
+            "",
+        ]
+    )
+
+
+def render_maintenance_timer(config: Mapping[str, str]) -> str:
+    """Render the configured weekly maintenance window."""
+
+    validate_config(config)
+    hour_minute = config["OS_MAINTENANCE_TIME"]
+    return (
+        "[Unit]\n"
+        "Description=Run PPSPi unattended OS maintenance\n\n"
+        "[Timer]\n"
+        f"OnCalendar={config['OS_MAINTENANCE_DAY']} *-*-* {hour_minute}:00 "
+        f"{config['OS_MAINTENANCE_TIMEZONE']}\n"
+        "Persistent=true\n"
+        f"RandomizedDelaySec={config['OS_MAINTENANCE_RANDOM_DELAY_MINUTES']}min\n"
+        "Unit=ppstime-maintenance.service\n\n"
+        "[Install]\n"
+        "WantedBy=timers.target\n"
+    )
 
 
 def update_managed_block(existing: str, block: str) -> str:

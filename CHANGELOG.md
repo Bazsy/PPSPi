@@ -17,6 +17,9 @@ All notable changes are documented here. PPSPi follows
 - separate passive host health for root/boot capacity and inodes, read-only/ext4
   errors, Raspberry Pi temperature/throttling, and OS update freshness, with
   independent hysteresis, hooks, diagnostics, JSON, and Prometheus metrics.
+- distribution-native unattended OS security updates in a configurable weekly
+  window, with package audit, atomic state, RTC preflight, required-only reboot,
+  and boot-ID acknowledgment that prevents reboot loops.
 
 ## 0.1.0 - 2026-07-22
 

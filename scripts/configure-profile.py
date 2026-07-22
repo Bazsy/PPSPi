@@ -23,6 +23,8 @@ from ppstime_core import (  # noqa: E402
     render_boot_block,
     render_chrony,
     render_gpsd,
+    render_maintenance_timer,
+    render_unattended_upgrades,
     update_managed_block,
 )
 
@@ -97,6 +99,14 @@ def main() -> int:
             rooted(root, "/etc/ppstime/ppstime.env"): (config_to_env(config), 0o644),
             rooted(root, "/etc/chrony/conf.d/ppstime.conf"): (render_chrony(config), 0o644),
             rooted(root, "/etc/default/gpsd"): (render_gpsd(config), 0o644),
+            rooted(root, "/etc/apt/apt.conf.d/52ppstime-unattended-upgrades"): (
+                render_unattended_upgrades(config),
+                0o644,
+            ),
+            rooted(root, "/etc/systemd/system/ppstime-maintenance.timer"): (
+                render_maintenance_timer(config),
+                0o644,
+            ),
         }
 
         boot_config = find_boot_file(root, "config.txt")

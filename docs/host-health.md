@@ -141,9 +141,9 @@ The reserved marker has this exact schema:
 }
 ```
 
-Only `SUCCESS` and `FAILED` results are accepted. Issue #67 will write this file
-atomically after maintenance checks. Until then, a missing marker reports update
-status `UNKNOWN` without a host warning. An invalid existing marker is a warning.
+Only `SUCCESS` and `FAILED` results are accepted. PPSPi's unattended maintenance
+writes this file atomically. A missing marker reports update status `UNKNOWN`
+without a host warning; an invalid existing marker is a warning.
 
 ## Transition hooks
 

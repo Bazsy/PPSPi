@@ -180,6 +180,10 @@ ppstime-backup export --output "$HOME/ppstime-backup.tar.gz"
 It excludes accounts, SSH keys, Wi-Fi credentials, and unrelated OS files.
 See [configuration backup and disaster recovery](docs/backup-restore.md).
 
+On `0.2.0-dev`, signed OS security updates run in a weekly maintenance window
+and reboot only when the OS requires it and package/RTC preflight passes. See
+[unattended OS maintenance](docs/maintenance.md).
+
 `ppstime-health` and the passive stateful monitor are available on the current
 `0.2.0-dev` development branch; they are not included in the published v0.1.0
 image. On a `0.2.0-dev` installation, inspect confirmed appliance health and
@@ -281,6 +285,7 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - [Health monitoring and soak testing](docs/monitoring.md)
 - [Host health monitoring](docs/host-health.md)
 - [Configuration backup and disaster recovery](docs/backup-restore.md)
+- [Unattended OS maintenance](docs/maintenance.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Hardware acceptance plan](docs/hardware-test-plan.md)
 - [v0.1.0 hardware report](docs/hardware-test-report-v0.1.0.md)

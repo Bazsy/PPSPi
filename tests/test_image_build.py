@@ -67,6 +67,23 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("/usr/bin/vcgencmd", image_validator)
         self.assertIn("/usr/lib/ppstime/ppstime-host-health", image_validator)
 
+    def test_unattended_maintenance_is_in_both_install_paths(self) -> None:
+        install_script = (PROJECT_ROOT / "scripts" / "install.sh").read_text(
+            encoding="utf-8"
+        )
+        image_packages = (
+            PROJECT_ROOT / "pi-gen" / "stage-pps-pi" / "00-packages" / "00-packages"
+        ).read_text(encoding="utf-8")
+        image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("unattended-upgrades", install_script)
+        self.assertIn("unattended-upgrades", image_packages.split())
+        self.assertIn("ppstime-maintenance.timer", image_validator)
+        self.assertIn("ppstime-maintenance-post-boot.timer", image_validator)
+        self.assertIn("52ppstime-unattended-upgrades", image_validator)
+        self.assertIn("apt-daily-upgrade.timer", image_validator)
+
     def test_image_removes_only_missing_cloud_init_module(self) -> None:
         stage_script = (
             PROJECT_ROOT / "pi-gen" / "stage-pps-pi" / "01-install" / "00-run.sh"
