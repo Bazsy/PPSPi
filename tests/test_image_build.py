@@ -83,6 +83,18 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("ppstime-maintenance-post-boot.timer", image_validator)
         self.assertIn("52ppstime-unattended-upgrades", image_validator)
         self.assertIn("apt-daily-upgrade.timer", image_validator)
+        self.assertIn(
+            "systemctl disable apt-daily.timer apt-daily-upgrade.timer",
+            install_script,
+        )
+        self.assertIn(
+            "systemctl stop apt-daily.timer apt-daily-upgrade.timer || true",
+            install_script,
+        )
+        self.assertNotIn(
+            "systemctl disable --now apt-daily.timer apt-daily-upgrade.timer",
+            install_script,
+        )
 
     def test_image_removes_only_missing_cloud_init_module(self) -> None:
         stage_script = (

@@ -184,7 +184,8 @@ if [[ "${target_root}" == "/" && "${dry_run}" == "false" ]]; then
         systemctl disable --now gpsd.service gpsd.socket || true
     fi
     systemctl enable ppstime-healthcheck.timer
-    systemctl disable --now apt-daily.timer apt-daily-upgrade.timer
+    systemctl disable apt-daily.timer apt-daily-upgrade.timer
+    systemctl stop apt-daily.timer apt-daily-upgrade.timer || true
     systemctl enable ppstime-maintenance-post-boot.timer
     if grep -qx 'OS_UPDATES_ENABLED=true' /etc/ppstime/ppstime.env; then
         systemctl enable ppstime-maintenance.timer
