@@ -3,8 +3,9 @@ Description=Run the PPSPi health check without restarting timing services
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=15min
-RandomizedDelaySec=1min
+OnUnitActiveSec=2min
+RandomizedDelaySec=15s
+AccuracySec=15s
 Unit=ppstime-healthcheck.service
 
 [Install]

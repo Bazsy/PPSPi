@@ -137,13 +137,15 @@ log "installing PPSPi runtime"
 copy_file "${SOURCE_ROOT}/files/ppstime/ppstime_core.py" "/usr/lib/ppstime/ppstime_core.py" 0644
 copy_file "${SCRIPT_DIR}/configure-profile.py" "/usr/lib/ppstime/configure-profile.py" 0755
 for command_name in ppstime-status ppstime-test ppstime-config ppstime-diagnostics \
-    ppstime-wait-devices ppstime-rtc ppstime-healthcheck; do
+    ppstime-wait-devices ppstime-rtc ppstime-health ppstime-healthcheck; do
     copy_file "${SOURCE_ROOT}/files/ppstime/${command_name}" "/usr/lib/ppstime/${command_name}" 0755
 done
 run install -d -m 0755 "$(rooted /usr/local/sbin)"
 for public_command in ppstime-status ppstime-test ppstime-config ppstime-diagnostics; do
     run ln -sfn "/usr/lib/ppstime/${public_command}" "$(rooted "/usr/local/sbin/${public_command}")"
 done
+run ln -sfnT "/usr/lib/ppstime/ppstime-health" "$(rooted /usr/local/sbin/ppstime-health)"
+run install -d -m 0755 "$(rooted /etc/ppstime/health-transition.d)"
 
 run install -d -m 0755 "$(rooted /usr/share/ppstime/config/profiles)"
 copy_file "${SOURCE_ROOT}/config/default.env" "/usr/share/ppstime/config/default.env" 0644

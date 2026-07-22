@@ -1,0 +1,604 @@
+#!/usr/bin/env python3
+"""Track passive PPSPi health state without modifying the timing chain."""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import json
+import math
+import os
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+SCHEMA_VERSION = 1
+STATUS_SCHEMA_VERSION = 1
+CONFIRMATIONS = 2
+HOOK_TIMEOUT_SECONDS = 10
+HOOK_TOTAL_BUDGET_SECONDS = 15
+STATUS_TIMEOUT_SECONDS = 20
+DEFAULT_STATE_FILE = Path("/run/ppstime/health-state.json")
+DEFAULT_HOOK_DIR = Path("/etc/ppstime/health-transition.d")
+DEFAULT_STATUS_COMMAND = Path("/usr/lib/ppstime/ppstime-status")
+HEALTH_STATES = (
+    "UNKNOWN",
+    "HEALTHY_PPS",
+    "NETWORK_FALLBACK",
+    "UNSYNCHRONIZED",
+    "HARDWARE_ERROR",
+)
+METRIC_STATES = HEALTH_STATES
+STATE_KEYS = {
+    "schema_version",
+    "state",
+    "state_since",
+    "state_since_monotonic_seconds",
+    "pending_state",
+    "pending_count",
+    "last_checked_at",
+    "last_observation",
+    "last_transition",
+}
+OBSERVATION_KEYS = {"raw_state", "reasons", "summary"}
+TRANSITION_KEYS = {"from", "to", "at", "previous_duration_seconds", "reasons"}
+
+
+class HealthError(ValueError):
+    """Raised when health input or persisted state is invalid."""
+
+
+def format_timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_timestamp(value: str) -> datetime:
+    if not isinstance(value, str):
+        raise HealthError(f"UTC timestamp must be a string: {value!r}")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError) as exc:
+        raise HealthError(f"invalid UTC timestamp: {value!r}") from exc
+    if parsed.tzinfo is None:
+        raise HealthError(f"UTC timestamp has no timezone: {value!r}")
+    return parsed.astimezone(timezone.utc)
+
+
+def requested_time(value: str | None) -> datetime:
+    return parse_timestamp(value) if value else datetime.now(timezone.utc)
+
+
+def requested_monotonic(value: float | None) -> float:
+    monotonic = time.clock_gettime(time.CLOCK_BOOTTIME) if value is None else value
+    if type(monotonic) not in {int, float} or not math.isfinite(monotonic) or monotonic < 0:
+        raise HealthError("monotonic seconds must be a finite non-negative number")
+    return float(monotonic)
+
+
+def require_mapping(value: Any, name: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise HealthError(f"{name} must be a JSON object")
+    return value
+
+
+def require_string(mapping: dict[str, Any], key: str, context: str) -> str:
+    value = mapping.get(key)
+    if not isinstance(value, str) or not value:
+        raise HealthError(f"{context}.{key} must be a non-empty string")
+    return value
+
+
+def normalize_status(payload: Any) -> dict[str, Any]:
+    status = require_mapping(payload, "status")
+    schema_version = status.get("schema_version")
+    if type(schema_version) is not int or schema_version != STATUS_SCHEMA_VERSION:
+        raise HealthError("unsupported ppstime-status schema")
+    gps = require_mapping(status.get("gps"), "status.gps")
+    pps = require_mapping(status.get("pps"), "status.pps")
+    rtc = require_mapping(status.get("rtc"), "status.rtc")
+    chrony = require_mapping(status.get("chrony"), "status.chrony")
+    pps_exists = pps.get("exists")
+    if not isinstance(pps_exists, bool):
+        raise HealthError("status.pps.exists must be boolean")
+    stratum_value = chrony.get("stratum")
+    if stratum_value is not None and type(stratum_value) is not int:
+        raise HealthError("status.chrony.stratum must be an integer or null")
+    selected_source = chrony.get("selected_source")
+    if selected_source is not None and not isinstance(selected_source, str):
+        raise HealthError("status.chrony.selected_source must be a string or null")
+    selected_source_kind = (
+        selected_source if selected_source in {"GPS", "PPS"} else "OTHER"
+    ) if selected_source else None
+    return {
+        "chrony_state": require_string(chrony, "state", "status.chrony"),
+        "selected_source": selected_source_kind,
+        "stratum": stratum_value,
+        "gps_fix": require_string(gps, "fix", "status.gps"),
+        "gps_serial": require_string(gps, "serial", "status.gps"),
+        "gps_service": require_string(gps, "service", "status.gps"),
+        "pps_exists": pps_exists,
+        "pps_pulses": require_string(pps, "pulses", "status.pps"),
+        "rtc_status": require_string(rtc, "status", "status.rtc"),
+    }
+
+
+def classify_status(summary: dict[str, Any]) -> tuple[str, list[str]]:
+    hardware_reasons: list[str] = []
+    if summary["gps_serial"] != "OK":
+        hardware_reasons.append("gps_serial_missing")
+    if summary["gps_service"] != "ACTIVE":
+        hardware_reasons.append("gpsd_inactive")
+    if not summary["pps_exists"]:
+        hardware_reasons.append("pps_device_missing")
+    if summary["rtc_status"] != "OK":
+        hardware_reasons.append("rtc_unavailable")
+    if hardware_reasons:
+        return "HARDWARE_ERROR", hardware_reasons
+
+    if summary["chrony_state"] != "SYNCHRONIZED":
+        return "UNSYNCHRONIZED", ["chrony_not_synchronized"]
+
+    if (
+        summary["selected_source"] == "PPS"
+        and summary["pps_pulses"] == "ACTIVE"
+        and summary["stratum"] == 1
+    ):
+        return "HEALTHY_PPS", []
+
+    reasons: list[str] = []
+    if summary["selected_source"] != "PPS":
+        selected_kind = summary["selected_source"]
+        reasons.append(f"selected_source={selected_kind.lower() if selected_kind else 'none'}")
+    if summary["pps_pulses"] != "ACTIVE":
+        reasons.append("pps_inactive")
+    if summary["stratum"] != 1:
+        stratum = summary["stratum"] if summary["stratum"] is not None else "none"
+        reasons.append(f"stratum={stratum}")
+    if not reasons:
+        reasons.append("pps_health_inconsistent")
+    return "NETWORK_FALLBACK", reasons
+
+
+def empty_state() -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "state": "UNKNOWN",
+        "state_since": None,
+        "state_since_monotonic_seconds": None,
+        "pending_state": None,
+        "pending_count": 0,
+        "last_checked_at": None,
+        "last_observation": None,
+        "last_transition": None,
+    }
+
+
+def validate_state(payload: Any) -> dict[str, Any]:
+    state = require_mapping(payload, "health state")
+    unknown_keys = set(state) - STATE_KEYS
+    missing_keys = STATE_KEYS - set(state)
+    if unknown_keys or missing_keys:
+        raise HealthError(
+            "health state keys do not match schema: "
+            f"missing={sorted(missing_keys)} unknown={sorted(unknown_keys)}"
+        )
+    schema_version = state.get("schema_version")
+    if type(schema_version) is not int or schema_version != SCHEMA_VERSION:
+        raise HealthError("unsupported health-state schema")
+    if state.get("state") not in HEALTH_STATES:
+        raise HealthError("health state contains an invalid state")
+    pending_state = state.get("pending_state")
+    if pending_state is not None and pending_state not in HEALTH_STATES[1:]:
+        raise HealthError("health state contains an invalid pending state")
+    pending_count = state.get("pending_count")
+    if type(pending_count) is not int or pending_count < 0 or pending_count >= CONFIRMATIONS:
+        raise HealthError("health state contains an invalid pending count")
+    if (pending_state is None) != (pending_count == 0):
+        raise HealthError("health state pending fields are inconsistent")
+    for key in ("state_since", "last_checked_at"):
+        value = state.get(key)
+        if value is not None:
+            parse_timestamp(value)
+    if state["state"] == "UNKNOWN" and state.get("state_since") is not None:
+        raise HealthError("UNKNOWN health state cannot have a start time")
+    if state["state"] != "UNKNOWN" and state.get("state_since") is None:
+        raise HealthError("established health state must have a start time")
+    monotonic = state.get("state_since_monotonic_seconds")
+    if state["state"] == "UNKNOWN" and monotonic is not None:
+        raise HealthError("UNKNOWN health state cannot have a monotonic start time")
+    if state["state"] != "UNKNOWN" and (
+        type(monotonic) not in {int, float}
+        or not math.isfinite(monotonic)
+        or monotonic < 0
+    ):
+        raise HealthError("established health state must have a monotonic start time")
+    observation = state.get("last_observation")
+    if observation is not None:
+        observation = require_mapping(observation, "last_observation")
+        if set(observation) != OBSERVATION_KEYS:
+            raise HealthError("last observation keys do not match schema")
+        if observation.get("raw_state") not in HEALTH_STATES[1:]:
+            raise HealthError("last observation contains an invalid raw state")
+        reasons = observation.get("reasons")
+        if not isinstance(reasons, list) or not all(isinstance(reason, str) for reason in reasons):
+            raise HealthError("last observation reasons must be strings")
+        require_mapping(observation.get("summary"), "last_observation.summary")
+    transition = state.get("last_transition")
+    if transition is not None:
+        transition = require_mapping(transition, "last_transition")
+        if set(transition) != TRANSITION_KEYS:
+            raise HealthError("last transition keys do not match schema")
+        if transition.get("from") not in HEALTH_STATES:
+            raise HealthError("last transition contains an invalid source state")
+        if transition.get("to") not in HEALTH_STATES[1:]:
+            raise HealthError("last transition contains an invalid destination state")
+        parse_timestamp(require_string(transition, "at", "last_transition"))
+        duration = transition.get("previous_duration_seconds")
+        if duration is not None and (type(duration) is not int or duration < 0):
+            raise HealthError("last transition contains an invalid duration")
+        reasons = transition.get("reasons")
+        if not isinstance(reasons, list) or not all(isinstance(reason, str) for reason in reasons):
+            raise HealthError("last transition reasons must be strings")
+    return state
+
+
+def load_json_file(path: Path, description: str) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise HealthError(f"{description} not found: {path}") from exc
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HealthError(f"cannot read {description}: {exc}") from exc
+
+
+def load_state(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return empty_state()
+    if path.is_symlink() or not path.is_file():
+        raise HealthError(f"health state path is not a regular file: {path}")
+    return validate_state(load_json_file(path, "health state"))
+
+
+def write_state(path: Path, payload: dict[str, Any]) -> None:
+    parent = path.parent
+    if parent.exists() and (parent.is_symlink() or not parent.is_dir()):
+        raise HealthError(f"health state directory is unsafe: {parent}")
+    temporary_name: str | None = None
+    try:
+        parent.mkdir(parents=True, mode=0o755, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(prefix=".health-state-", dir=parent)
+        os.fchmod(descriptor, 0o644)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_name, path)
+        temporary_name = None
+    except OSError as exc:
+        raise HealthError(f"cannot write health state: {exc}") from exc
+    finally:
+        if temporary_name is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(temporary_name)
+
+
+def collect_status(status_json: Path | None, status_command: Path) -> dict[str, Any]:
+    if status_json is not None:
+        return normalize_status(load_json_file(status_json, "status fixture"))
+    try:
+        result = subprocess.run(
+            [str(status_command), "--json"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=STATUS_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HealthError(f"status collection failed: {exc}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit code {result.returncode}"
+        raise HealthError(f"status collection failed: {detail}")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise HealthError(f"status collection returned invalid JSON: {exc}") from exc
+    return normalize_status(payload)
+
+
+def update_state(
+    state: dict[str, Any],
+    raw_state: str,
+    reasons: list[str],
+    summary: dict[str, Any],
+    now: datetime,
+    monotonic: float,
+    confirmations: int,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    if type(confirmations) is not int or confirmations != CONFIRMATIONS:
+        raise HealthError(f"confirmations must be exactly {CONFIRMATIONS}")
+    now_text = format_timestamp(now)
+    state["last_checked_at"] = now_text
+    state["last_observation"] = {
+        "raw_state": raw_state,
+        "reasons": reasons,
+        "summary": summary,
+    }
+    transition: dict[str, Any] | None = None
+    if raw_state == state["state"]:
+        state["pending_state"] = None
+        state["pending_count"] = 0
+    else:
+        if state["pending_state"] == raw_state:
+            state["pending_count"] += 1
+        else:
+            state["pending_state"] = raw_state
+            state["pending_count"] = 1
+        if state["pending_count"] >= confirmations:
+            previous_state = state["state"]
+            previous_duration: int | None = None
+            if state["state_since_monotonic_seconds"] is not None:
+                previous_duration = max(
+                    0,
+                    int(monotonic - state["state_since_monotonic_seconds"]),
+                )
+            transition = {
+                "from": previous_state,
+                "to": raw_state,
+                "at": now_text,
+                "previous_duration_seconds": previous_duration,
+                "reasons": reasons,
+            }
+            state["state"] = raw_state
+            state["state_since"] = now_text
+            state["state_since_monotonic_seconds"] = monotonic
+            state["pending_state"] = None
+            state["pending_count"] = 0
+            state["last_transition"] = transition
+    validate_state(state)
+    return state, transition
+
+
+def safe_hooks(hook_dir: Path) -> tuple[list[Path], list[str]]:
+    if not hook_dir.exists():
+        return [], []
+    warnings: list[str] = []
+    try:
+        directory_stat = hook_dir.lstat()
+    except OSError as exc:
+        return [], [f"cannot inspect hook directory: {exc}"]
+    expected_owner = os.geteuid()
+    if (
+        not stat.S_ISDIR(directory_stat.st_mode)
+        or stat.S_ISLNK(directory_stat.st_mode)
+        or directory_stat.st_uid != expected_owner
+        or directory_stat.st_mode & 0o022
+    ):
+        return [], [f"unsafe hook directory ignored: {hook_dir}"]
+    hooks: list[Path] = []
+    try:
+        entries = sorted(hook_dir.iterdir(), key=lambda path: path.name)
+    except OSError as exc:
+        return [], [f"cannot list hook directory: {exc}"]
+    for entry in entries:
+        try:
+            entry_stat = entry.lstat()
+        except OSError as exc:
+            warnings.append(f"cannot inspect hook {entry.name}: {exc}")
+            continue
+        if (
+            not stat.S_ISREG(entry_stat.st_mode)
+            or stat.S_ISLNK(entry_stat.st_mode)
+            or entry_stat.st_uid != expected_owner
+            or entry_stat.st_mode & 0o022
+            or not entry_stat.st_mode & stat.S_IXUSR
+        ):
+            warnings.append(f"unsafe hook ignored: {entry.name}")
+            continue
+        hooks.append(entry)
+    return hooks, warnings
+
+
+def run_hooks(hook_dir: Path, transition: dict[str, Any]) -> list[str]:
+    hooks, warnings = safe_hooks(hook_dir)
+    deadline = time.monotonic() + HOOK_TOTAL_BUDGET_SECONDS
+    environment = {
+        "HOME": "/",
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PPSTIME_HEALTH_AT": transition["at"],
+        "PPSTIME_HEALTH_FROM": transition["from"],
+        "PPSTIME_HEALTH_TO": transition["to"],
+        "PPSTIME_HEALTH_PREVIOUS_DURATION_SECONDS": (
+            ""
+            if transition["previous_duration_seconds"] is None
+            else str(transition["previous_duration_seconds"])
+        ),
+        "PPSTIME_HEALTH_REASONS": ",".join(transition["reasons"]),
+    }
+    for hook in hooks:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            warnings.append("total hook time budget exhausted")
+            break
+        try:
+            process = subprocess.Popen(
+                [str(hook)],
+                env=environment,
+                stderr=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                text=True,
+                start_new_session=True,
+            )
+            try:
+                process.communicate(timeout=min(HOOK_TIMEOUT_SECONDS, remaining))
+            except subprocess.TimeoutExpired:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                process.communicate()
+                warnings.append(f"hook {hook.name} timed out")
+                continue
+        except OSError as exc:
+            warnings.append(f"hook {hook.name} failed: {exc}")
+            continue
+        if process.returncode != 0:
+            warnings.append(f"hook {hook.name} exited {process.returncode}")
+    return warnings
+
+
+def state_duration(state: dict[str, Any], monotonic: float) -> int | None:
+    if state["state_since_monotonic_seconds"] is None:
+        return None
+    return max(0, int(monotonic - state["state_since_monotonic_seconds"]))
+
+
+def public_state(state: dict[str, Any], monotonic: float) -> dict[str, Any]:
+    result = dict(state)
+    result["state_duration_seconds"] = state_duration(state, monotonic)
+    return result
+
+
+def render_human(state: dict[str, Any], monotonic: float) -> str:
+    duration = state_duration(state, monotonic)
+    observation = state.get("last_observation") or {}
+    reasons = observation.get("reasons") or []
+    lines = [
+        "PPSPi health",
+        "------------",
+        "",
+        f"State:              {state['state']}",
+        f"State since:        {state['state_since'] or 'N/A'}",
+        f"State duration:     {str(duration) + ' seconds' if duration is not None else 'N/A'}",
+        f"Last checked:       {state['last_checked_at'] or 'N/A'}",
+        f"Last observation:   {observation.get('raw_state', 'N/A')}",
+        f"Reasons:            {', '.join(reasons) if reasons else 'none'}",
+        f"Pending state:      {state['pending_state'] or 'none'}",
+        f"Pending count:      {state['pending_count']}",
+    ]
+    return "\n".join(lines)
+
+
+def render_prometheus(state: dict[str, Any], monotonic: float) -> str:
+    duration = state_duration(state, monotonic)
+    checked_at = state.get("last_checked_at")
+    checked_timestamp = parse_timestamp(checked_at).timestamp() if checked_at else 0
+    lines = [
+        "# HELP ppstime_health_state Current confirmed PPSPi health state.",
+        "# TYPE ppstime_health_state gauge",
+    ]
+    for health_state in METRIC_STATES:
+        value = 1 if state["state"] == health_state else 0
+        lines.append(f'ppstime_health_state{{state="{health_state}"}} {value}')
+    lines.extend(
+        [
+            "# HELP ppstime_health_state_duration_seconds Seconds in the current confirmed state.",
+            "# TYPE ppstime_health_state_duration_seconds gauge",
+            f"ppstime_health_state_duration_seconds {duration if duration is not None else 0}",
+            "# HELP ppstime_health_last_check_timestamp_seconds "
+            "Unix timestamp of the last status observation.",
+            "# TYPE ppstime_health_last_check_timestamp_seconds gauge",
+            f"ppstime_health_last_check_timestamp_seconds {checked_timestamp:.0f}",
+            "# HELP ppstime_health_pending_confirmations "
+            "Consecutive observations awaiting confirmation.",
+            "# TYPE ppstime_health_pending_confirmations gauge",
+            f"ppstime_health_pending_confirmations {state['pending_count']}",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def update_health(args: argparse.Namespace, now: datetime, monotonic: float) -> int:
+    try:
+        state = load_state(args.state_file)
+        summary = collect_status(args.status_json, args.status_command)
+        raw_state, reasons = classify_status(summary)
+        state, transition = update_state(
+            state,
+            raw_state,
+            reasons,
+            summary,
+            now,
+            monotonic,
+            args.confirmations,
+        )
+        write_state(args.state_file, state)
+    except HealthError as exc:
+        print(f"PPSPi health warning: {exc}")
+        return 0
+
+    if transition is not None:
+        duration = transition["previous_duration_seconds"]
+        print(
+            "PPSPi health transition: "
+            f"from={transition['from']} to={transition['to']} at={transition['at']} "
+            f"previous_duration_seconds={duration if duration is not None else 'unknown'} "
+            f"reasons={','.join(transition['reasons']) or 'none'}"
+        )
+        should_run_hooks = transition["from"] != "UNKNOWN" or transition["to"] != "HEALTHY_PPS"
+        if should_run_hooks:
+            for warning in run_hooks(args.hook_dir, transition):
+                print(f"PPSPi health warning: {warning}")
+    elif state["pending_state"] is not None:
+        print(
+            "PPSPi health pending: "
+            f"current={state['state']} observed={state['pending_state']} "
+            f"confirmation={state['pending_count']}/{args.confirmations}"
+        )
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--update", action="store_true", help=argparse.SUPPRESS)
+    output.add_argument("--json", action="store_true", help="emit machine-readable state")
+    output.add_argument("--prometheus", action="store_true", help="emit Prometheus text format")
+    parser.add_argument(
+        "--state-file", type=Path, default=DEFAULT_STATE_FILE, help=argparse.SUPPRESS
+    )
+    parser.add_argument(
+        "--hook-dir", type=Path, default=DEFAULT_HOOK_DIR, help=argparse.SUPPRESS
+    )
+    parser.add_argument(
+        "--status-command",
+        type=Path,
+        default=DEFAULT_STATUS_COMMAND,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument("--status-json", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--confirmations", type=int, default=CONFIRMATIONS, help=argparse.SUPPRESS)
+    parser.add_argument("--now", help=argparse.SUPPRESS)
+    parser.add_argument("--monotonic-seconds", type=float, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+
+    try:
+        now = requested_time(args.now)
+        monotonic = requested_monotonic(args.monotonic_seconds)
+    except HealthError as exc:
+        print(f"ppstime-health: {exc}", file=sys.stderr)
+        return 2
+
+    if args.update:
+        return update_health(args, now, monotonic)
+
+    try:
+        state = load_state(args.state_file)
+    except HealthError as exc:
+        print(f"ppstime-health: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(public_state(state, monotonic), indent=2, sort_keys=True))
+    elif args.prometheus:
+        print(render_prometheus(state, monotonic))
+    else:
+        print(render_human(state, monotonic))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

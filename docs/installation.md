@@ -125,6 +125,7 @@ After reboot:
 
 ```console
 ppstime-status
+ppstime-health
 sudo ppstime-test
 systemctl status chrony gpsd
 chronyc sources -v
@@ -136,6 +137,10 @@ confirm a stable 3D fix, multiple satellites used, continuous one-second PPS
 events, and `#* PPS` in Chrony. A large visible-satellite count alone does not
 prove sufficient signal or geometry. `ppstime-test` intentionally returns
 non-zero while essential timing components are unavailable.
+
+The passive health monitor starts after five minutes and needs two matching
+observations to establish or change state. `UNKNOWN` immediately after boot is
+therefore expected. See [health monitoring and soak testing](monitoring.md).
 
 Optionally narrow NTP access to the actual LAN when the broader private-range
 default is not desired:
