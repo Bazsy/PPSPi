@@ -1,6 +1,6 @@
 # PPSPi v0.1.0 release readiness
 
-Status: **READY AFTER RELEASE PR MERGE**
+Status: **READY FOR v0.1.0 PUBLICATION**
 
 This checklist summarizes release controls without replacing the detailed
 [hardware report](hardware-test-report-v0.1.0.md) or
@@ -76,7 +76,6 @@ Reviewed 2026-07-21:
   request.
 - [x] Changelog `0.1.0` section receives the release date.
 - [x] Final release notes replace all pending language.
-- [ ] Release pull request merges with all protected checks successful.
 - [ ] Explicit GitHub Release `v0.1.0` is published against the reviewed commit.
 - [ ] Release workflow attaches and verifies all four public assets.
 - [ ] Public artifact checksum, metadata, Imager manifest, credential absence,
