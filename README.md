@@ -10,12 +10,11 @@ kernel-timestamped pulse-per-second events, Chrony, and the HAT's hardware RTC
 while staying close to the standard Raspberry Pi OS appliance model.
 
 > [!IMPORTANT]
-> PPSPi is pre-release software. The configuration is source-verified for the
-> Uputronics GPS/RTC Expansion Board V6.0+. Operational Raspberry Pi 4 hardware
-> checks and the 24-hour open-sky observation are complete or explicitly
-> scope-waived, and the hardware report is approved. Public v0.1.0 release assets
-> and their post-release smoke verification are still pending. Do not use PPSPi
-> as a sole production time source.
+> PPSPi is early-stage software. Version 0.1.0 is source-verified and
+> hardware-tested on the documented Raspberry Pi 4 and Uputronics Rev 6.4
+> target, including a 24-hour open-sky observation and public-image smoke boot.
+> Check 15 has an explicit deployment-scope waiver rather than a measured pass.
+> Do not use PPSPi as a sole production time source.
 
 ## Supported hardware
 
@@ -52,7 +51,7 @@ for startup and GNSS outages. The RTC is only an offline boot aid.
 
 ## Download and flash an image
 
-When hardware-tested images are available, download these files from
+Download the hardware-tested v0.1.0 image from
 [GitHub Releases](https://github.com/Bazsy/PPSPi/releases):
 
 - `ppspi-<version>-raspios-trixie-arm64.img.xz`;
@@ -218,9 +217,6 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 
 ## Known limitations
 
-- The hardware gate is approved, but public v0.1.0 assets and the shortened
-  post-release smoke boot remain pending; see the
-  [hardware report](docs/hardware-test-report-v0.1.0.md).
 - Older Uputronics board revisions may use a different RTC and are not assumed
   compatible without identification.
 - Only Raspberry Pi 4 Model B is accepted by the initial profile.

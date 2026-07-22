@@ -32,6 +32,27 @@ The GitHub artifact digest recorded for workflow artifact ID `8470418703` is
 `sha256:084e74335bf3a4b969a96ba7e66f28ccbe486f4450a5e6ec1cd9d71570dc2fde`.
 That digest covers the artifact ZIP and is not the raw image SHA-256.
 
+## Public release verification
+
+| Field | Value |
+| --- | --- |
+| GitHub Release | [v0.1.0](https://github.com/Bazsy/PPSPi/releases/tag/v0.1.0) |
+| Tagged release commit | `fcc3acf3ab6d26c94ba3a9e952abb9957d58b0fc` |
+| Release workflow | [Run 29907047200](https://github.com/Bazsy/PPSPi/actions/runs/29907047200) |
+| Public image filename | `ppspi-0.1.0-raspios-trixie-arm64.img.xz` |
+| Public compressed SHA-256 | `75aad478df0a234f7d3c502b66cddbcf5e6e77430b0bfd2542acfdac696deb45` |
+| Public extracted SHA-256 | `4d049234e774fbc55f10000119beaddcec200e7a5f14cf5ffd2576ae4bf98e5f` |
+| Public Imager manifest | `ppspi-0.1.0-raspios-trixie-arm64.rpi-imager-manifest` |
+| Public image smoke result | PASS on Raspberry Pi Imager 2.0.10 and the accepted hardware target |
+
+The release workflow rebuilt from the reviewed tag and passed static tests,
+read-only mounted-image inspection, exact four-asset validation, and upload.
+Independent unauthenticated downloads passed compressed/extracted integrity,
+metadata, manifest, and credential-absence checks. Imager exposed every
+`cloudinit-rpi` customisation page; the flashed public image completed
+cloud-init and passed `ppstime-test` with active GPS, PPS, RTC, Chrony, local
+NTP, and systemd checks.
+
 ## Hardware and environment
 
 | Field | Value |
@@ -139,7 +160,7 @@ observation.
 
 ## Decision
 
-Release gate: **APPROVED FOR v0.1.0 PUBLICATION**
+Release gate: **COMPLETED FOR v0.1.0**
 
 The maintainer explicitly accepts check 15 as **WAIVED** for the declared
 deployment. Every routed private range is intentionally allowed, public/default
@@ -147,11 +168,11 @@ CIDRs are rejected by configuration validation, and no public forwarding or
 separate routed out-of-scope client exists. No denied-client measurement is
 represented as a pass.
 
-This approval covers the runtime-equivalent v0.1.0 candidate on the documented
-Raspberry Pi 4 / Uputronics Rev 6.4 hardware. The tagged release rebuild must
-still pass automated image/asset validation, public checksum and metadata
-verification, Imager loading, credential review, and the documented shortened
-post-release smoke boot.
+This approval covers the runtime-equivalent v0.1.0 candidate and the verified
+public rebuild on the documented Raspberry Pi 4 / Uputronics Rev 6.4 hardware.
+Automated image/asset validation, public checksum and metadata verification,
+Imager loading, credential review, and the documented shortened post-release
+smoke boot all passed.
 
 Tester and approver: repository maintainer. Approved 2026-07-22 based on all
 applicable hardware checks, the explicit check-15 scope waiver, and the 24-hour

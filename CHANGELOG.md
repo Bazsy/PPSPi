@@ -3,6 +3,10 @@
 All notable changes are documented here. PPSPi follows
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+No user-facing changes have been recorded yet.
+
 ## 0.1.0 - 2026-07-22
 
 ### Added
