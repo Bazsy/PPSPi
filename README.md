@@ -12,9 +12,10 @@ while staying close to the standard Raspberry Pi OS appliance model.
 > [!IMPORTANT]
 > PPSPi is pre-release software. The configuration is source-verified for the
 > Uputronics GPS/RTC Expansion Board V6.0+. Operational Raspberry Pi 4 hardware
-> checks are complete or explicitly scope-waived, but the final open-sky timing
-> observation and release report are still in progress. Do not use it as a sole
-> production time source until a release includes an approved hardware report.
+> checks and the 24-hour open-sky observation are complete or explicitly
+> scope-waived, and the hardware report is approved. Public v0.1.0 release assets
+> and their post-release smoke verification are still pending. Do not use PPSPi
+> as a sole production time source.
 
 ## Supported hardware
 
@@ -217,8 +218,9 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 
 ## Known limitations
 
-- Final 24-hour open-sky observation and release approval are still pending; see
-  the [in-progress hardware report](docs/hardware-test-report-v0.1.0.md).
+- The hardware gate is approved, but public v0.1.0 assets and the shortened
+  post-release smoke boot remain pending; see the
+  [hardware report](docs/hardware-test-report-v0.1.0.md).
 - Older Uputronics board revisions may use a different RTC and are not assumed
   compatible without identification.
 - Only Raspberry Pi 4 Model B is accepted by the initial profile.
@@ -243,6 +245,7 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - [Hardware acceptance plan](docs/hardware-test-plan.md)
 - [v0.1.0 hardware report](docs/hardware-test-report-v0.1.0.md)
 - [v0.1.0 release readiness](docs/release-readiness-v0.1.0.md)
+- [v0.1.0 release notes](docs/release-notes-v0.1.0.md)
 - [Development](docs/development.md)
 - [Release process](docs/release-process.md)
 

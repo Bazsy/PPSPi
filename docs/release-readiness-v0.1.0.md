@@ -1,6 +1,6 @@
 # PPSPi v0.1.0 release readiness
 
-Status: **IN PROGRESS**
+Status: **READY FOR v0.1.0 PUBLICATION**
 
 This checklist summarizes release controls without replacing the detailed
 [hardware report](hardware-test-report-v0.1.0.md) or
@@ -14,14 +14,15 @@ This checklist summarizes release controls without replacing the detailed
 - pinned pi-gen: `ca8aeed0ae300c2a89f55ce9617d5f96a27e99e5`;
 - compressed candidate SHA-256:
   `9d57c17deeaa6ebac4d7d1cd649c290eebe2391b9b4c90d539f359253596cd15`;
-- version file remains `0.1.0-dev`; no release tag exists.
+- release pull request sets `VERSION` to `0.1.0`; no release tag exists yet.
 
-Runtime/configuration is frozen during the final observation. Documentation
-work on this branch does not approve or publish a release.
+Runtime/configuration remained frozen through the final observation. The release
+pull request changes version and release documentation only; it does not publish
+a release.
 
 ## Validation completed
 
-- 62 unit and fixture tests passed on Python 3.10, 3.11, and 3.13;
+- 66 unit and fixture tests passed on Python 3.10, 3.11, and 3.13;
 - supported/rejected Raspberry Pi model matrix passed;
 - Ruff, ShellCheck, shfmt, yamllint, actionlint, and markdownlint passed;
 - manual Trixie arm64 image build and read-only validation passed;
@@ -33,6 +34,12 @@ work on this branch does not approve or publish a release.
   cold restore, and sanitized diagnostics were physically exercised;
 - marginal indoor RF placement was diagnosed and corrected without a software
   change.
+- the final 24.003-hour open-sky observation passed strict analysis with 97.42%
+  sample coverage, 100% PPS selection/assert advancement/3D GNSS captures, zero
+  restarts/failed units/throttling events, and a passing final deep test.
+- exact four-asset packaging and validation were rehearsed against the tested
+  candidate; the tagged rebuild will repeat image and asset validation before
+  upload.
 
 ## Repository and security controls
 
@@ -58,17 +65,17 @@ Reviewed 2026-07-21:
 
 ## Open gates
 
-- [ ] Fresh 24-hour open-sky timing observation started at
-  2026-07-21 08:48:24 UTC, completes, and is analyzed.
+- [x] Fresh 24-hour open-sky timing observation completed and passed strict
+  analysis.
 - [x] Visible HAT revision and best-effort RTC package top-code are recorded
   without serials; the difficult RTC reading is explicitly marked unverified.
 - [x] RAM, bootloader, storage, power-supply, and antenna/cable report fields are
   completed.
-- [ ] Maintainer signs off the documented check-15 deployment-scope waiver.
-- [ ] `VERSION` is changed from `0.1.0-dev` to `0.1.0` in a release pull
+- [x] Maintainer signed off the documented check-15 deployment-scope waiver.
+- [x] `VERSION` is changed from `0.1.0-dev` to `0.1.0` in a release pull
   request.
-- [ ] Changelog `0.1.0` section receives the release date.
-- [ ] Final release notes replace all pending language.
+- [x] Changelog `0.1.0` section receives the release date.
+- [x] Final release notes replace all pending language.
 - [ ] Explicit GitHub Release `v0.1.0` is published against the reviewed commit.
 - [ ] Release workflow attaches and verifies all four public assets.
 - [ ] Public artifact checksum, metadata, Imager manifest, credential absence,

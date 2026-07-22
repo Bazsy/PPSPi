@@ -41,7 +41,7 @@ PPSPi uses Semantic Versioning. Prepare a release pull request that:
 1. changes `VERSION` from a development identifier to the exact release version,
    for example `0.1.0`;
 2. moves relevant changelog entries into that version and adds the date;
-3. updates documentation and draft release notes;
+3. updates documentation and reviewed release notes;
 4. records the pinned pi-gen revision and operating-system release;
 5. links all deferred work;
 6. includes static and hardware test results.
