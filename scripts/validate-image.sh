@@ -82,8 +82,7 @@ sudo jq -e \
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-health" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-healthcheck" ]]
 [[ -L "${root_mount}/usr/local/sbin/ppstime-health" ]]
-[[ "$(sudo readlink "${root_mount}/usr/local/sbin/ppstime-health")" == \
-    "/usr/lib/ppstime/ppstime-health" ]]
+[[ "$(sudo readlink "${root_mount}/usr/local/sbin/ppstime-health")" == "/usr/lib/ppstime/ppstime-health" ]]
 [[ -f "${root_mount}/etc/systemd/system/ppstime-healthcheck.service" ]]
 [[ -f "${root_mount}/etc/systemd/system/ppstime-healthcheck.timer" ]]
 sudo grep -Fxq 'ExecStart=/usr/lib/ppstime/ppstime-healthcheck' \
@@ -98,8 +97,7 @@ sudo grep -Fxq 'CapabilityBoundingSet=' \
     "${root_mount}/etc/systemd/system/ppstime-healthcheck.service"
 sudo grep -Fxq 'OnUnitActiveSec=2min' \
     "${root_mount}/etc/systemd/system/ppstime-healthcheck.timer"
-[[ "$(sudo stat -c '%U:%G:%a' "${root_mount}/etc/ppstime/health-transition.d")" == \
-    "root:root:755" ]]
+[[ "$(sudo stat -c '%U:%G:%a' "${root_mount}/etc/ppstime/health-transition.d")" == "root:root:755" ]]
 health_timer_state="$(
     sudo systemctl --root="${root_mount}" is-enabled ppstime-healthcheck.timer \
         2> /dev/null || true
