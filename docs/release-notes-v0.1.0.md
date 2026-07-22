@@ -5,9 +5,8 @@ milestone for a GPS/PPS Stratum-1 server based on Raspberry Pi OS Lite 64-bit
 Trixie.
 
 > [!NOTE]
-> The four image assets are rebuilt and attached after the GitHub Release is
-> published. If they are not yet visible, the release workflow is still running;
-> wait for it to complete before downloading or flashing.
+> The four image assets were rebuilt from the published tag, validated, and
+> attached by the release workflow. Verify the supplied SHA-256 before flashing.
 
 ## Highlights
 
@@ -109,16 +108,23 @@ sudo ppstime-config apply
   [run 29762876590](https://github.com/Bazsy/PPSPi/actions/runs/29762876590);
 - manual image workflow:
   [run 29762932486](https://github.com/Bazsy/PPSPi/actions/runs/29762932486);
+- published release workflow:
+  [run 29907047200](https://github.com/Bazsy/PPSPi/actions/runs/29907047200);
 - [approved hardware report](hardware-test-report-v0.1.0.md);
 - tested candidate compressed image SHA-256:
   `9d57c17deeaa6ebac4d7d1cd649c290eebe2391b9b4c90d539f359253596cd15`;
 - tested runtime source commit:
   `f6cde4d72305ec1e31ffd76f9f247f0853615ff7`;
 - pinned pi-gen commit:
-  `ca8aeed0ae300c2a89f55ce9617d5f96a27e99e5`.
+  `ca8aeed0ae300c2a89f55ce9617d5f96a27e99e5`;
+- public release commit:
+  `fcc3acf3ab6d26c94ba3a9e952abb9957d58b0fc`;
+- public compressed image SHA-256:
+  `75aad478df0a234f7d3c502b66cddbcf5e6e77430b0bfd2542acfdac696deb45`;
+- public extracted image SHA-256:
+  `4d049234e774fbc55f10000119beaddcec200e7a5f14cf5ffd2576ae4bf98e5f`.
 
-The published image is rebuilt from the reviewed `v0.1.0` tag and therefore is
-not expected to have the same compressed checksum as the temporary candidate.
-Use the `.sha256` asset attached to the GitHub Release, then complete the public
-asset and shortened smoke checks in the
-[release process](release-process.md).
+The public image was rebuilt from the reviewed `v0.1.0` tag and therefore has a
+different compressed checksum from the temporary candidate. Its public asset,
+Raspberry Pi Imager 2.0.10 customisation flow, credential state, and shortened
+hardware smoke boot passed the [release process](release-process.md).
