@@ -3,10 +3,7 @@
 All notable changes are documented here. PPSPi follows
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
-
-Release preparation remains in progress. The entries below are intended for
-v0.1.0 but remain unreleased until the hardware report is approved.
+## 0.1.0 - 2026-07-22
 
 ### Added
 
@@ -97,5 +94,5 @@ v0.1.0 but remain unreleased until the hardware report is approved.
 - locked pi-gen build account and SSH-off image default;
 - explicit release publication gate and pinned GitHub Actions.
 
-Release gates and pending evidence are tracked in
+Release validation and post-publication checks are tracked in
 [`docs/release-readiness-v0.1.0.md`](docs/release-readiness-v0.1.0.md).

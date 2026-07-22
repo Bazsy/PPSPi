@@ -1,17 +1,18 @@
-# PPSPi hardware test report: v0.1.0 candidate
+# PPSPi hardware test report: v0.1.0
 
-Status: **IN PROGRESS**
+Status: **APPROVED**
 
-The twenty operational checks have been completed on the target appliance,
-except that check 15 has an explicit deployment-scope waiver rather than a
-measured pass. Final release approval remains blocked on the fresh 24-hour
-open-sky observation and its environment/timing metrics.
+All applicable operational checks passed on the target appliance. Check 15 has
+an explicitly approved deployment-scope waiver rather than a measured pass. The
+fresh 24-hour open-sky observation passed strict analysis with no detected
+operational anomaly.
 
 ## Artifact identity
 
 | Field | Value |
 | --- | --- |
 | Candidate version | `0.1.0-dev` |
+| Approved release version | `0.1.0` |
 | Source commit | `f6cde4d72305ec1e31ffd76f9f247f0853615ff7` |
 | Merge commit containing the candidate | `0f59bc3bf0daf9ee4e9ec1eff6f21afc1d6b8aea` |
 | Image filename | `ppspi-0.1.0-dev-raspios-trixie-arm64.img.xz` |
@@ -24,6 +25,8 @@ open-sky observation and its environment/timing metrics.
 | Manual image workflow | [Run 29762932486](https://github.com/Bazsy/PPSPi/actions/runs/29762932486) |
 | Protected test workflow | [Run 29762876794](https://github.com/Bazsy/PPSPi/actions/runs/29762876794) |
 | Protected lint workflow | [Run 29762876590](https://github.com/Bazsy/PPSPi/actions/runs/29762876590) |
+| Observation archive | `ppstime-open-sky-20260721T084824Z.tar.gz` |
+| Observation archive SHA-256 | `70635ca37b7034cf2bbf89077e54e3a0f5bd023d581bf54663b6768e01ae82dc` |
 
 The GitHub artifact digest recorded for workflow artifact ID `8470418703` is
 `sha256:084e74335bf3a4b969a96ba7e66f28ccbe486f4450a5e6ec1cd9d71570dc2fde`.
@@ -43,8 +46,8 @@ That digest covers the artifact ZIP and is not the raw image SHA-256.
 | Storage | SanDisk Ultra Go 32 GB microSD; Linux reported 29.7 GiB on `mmcblk0` |
 | Power supply | Official Raspberry Pi 4 USB-C power supply, rated 5 V / 3 A |
 | Network topology | Trusted private LAN, wired Ethernet, no public TCP 22 or UDP 123 forwarding |
-| Ambient temperature range | **PENDING: open-sky observation** |
-| Test period | 2026-07-20 onward; fresh open-sky observation started 2026-07-21 08:48:24 UTC; **PENDING: final observation end UTC** |
+| Ambient temperature range | 52.582–57.939 °C during the open-sky observation |
+| Test period | 2026-07-20 through 2026-07-22; final observation 2026-07-21 08:48:24 UTC through 2026-07-22 08:48:35 UTC |
 
 Precise coordinates, MAC addresses, private addresses, credentials, public NTP
 source addresses, storage serials, and host fingerprints are intentionally not
@@ -82,17 +85,19 @@ in [hardware acceptance issue #17](https://github.com/Bazsy/PPSPi/issues/17).
 
 | Metric | Value / method |
 | --- | --- |
-| Observation duration | **PENDING: fresh 24-hour open-sky run** |
+| Observation duration | 24.003 hours; 1,403 minute samples; 97.42% sample coverage; strict analyzer PASS |
 | Independent reference | No traceable independent timing reference; Chrony statistics are operational evidence only |
-| PPS availability | **PENDING** |
-| Mean system offset | **PENDING** |
-| RMS system offset | **PENDING** |
-| Maximum absolute offset | **PENDING** |
-| Mean PPS offset | **PENDING** |
-| PPS standard deviation | **PENDING** |
-| Root dispersion range | **PENDING** |
-| Frequency/skew range | **PENDING** |
-| Temperature range | **PENDING** |
+| PPS availability | `#* PPS` in 100% of 1,403 source samples; 100% of 1,402 kernel assert intervals advanced; zero reach-zero samples; maximum `LastRx` 1 second |
+| Mean system offset | +0.369 µs |
+| RMS system offset | 8.841 µs |
+| Maximum absolute offset | 122.676 µs |
+| Mean PPS offset | -1.300 µs |
+| PPS standard deviation | 20.895 µs population standard deviation; maximum absolute sample 256.165 µs |
+| Root dispersion range | 35.523 µs–1.019832 ms; mean 301.612 µs |
+| Frequency/skew range | Frequency -32.213–69.078 ppm (mean 18.978 ppm); skew 0.017–127.912 ppm (mean 2.599 ppm) |
+| Temperature range | 52.582–57.939 °C; mean 55.433 °C |
+| GNSS quality | 100% of 281 captures were 3D; 12–19 satellites used (mean 15.72); HDOP 0.61–1.26; PDOP 1.02–2.07 |
+| Operational continuity | Chrony/GPSD active in all 1,403 samples with zero restarts; zero failed units; zero throttling events; final deep test PASS |
 
 No accuracy claim will be derived from Chrony's printed resolution alone.
 
@@ -112,8 +117,9 @@ The acceptance campaign intentionally retained failures instead of hiding them:
   placement incident: the same hardware became stable with an external open-sky
   antenna and no software change.
 
-No unexplained service restart, failed unit, or time step remains open. The
-fresh open-sky observation must still complete without recurrence.
+No unexplained service restart, failed unit, source transition, PPS interruption,
+GNSS fix loss, throttling event, or time step was detected in the final
+observation.
 
 ## Security review
 
@@ -133,16 +139,20 @@ fresh open-sky observation must still complete without recurrence.
 
 ## Decision
 
-Release gate: **NOT APPROVED**
+Release gate: **APPROVED FOR v0.1.0 PUBLICATION**
 
-Remaining gates:
+The maintainer explicitly accepts check 15 as **WAIVED** for the declared
+deployment. Every routed private range is intentionally allowed, public/default
+CIDRs are rejected by configuration validation, and no public forwarding or
+separate routed out-of-scope client exists. No denied-client measurement is
+represented as a pass.
 
-1. complete and analyze the fresh 24-hour open-sky observation;
-2. fill the observation-derived environment and timing fields;
-3. review and explicitly approve the check-15 scope waiver in the final release
-   decision;
-4. prepare the release-version commit and run the documented release process;
-5. verify public release assets and perform the post-release smoke boot.
+This approval covers the runtime-equivalent v0.1.0 candidate on the documented
+Raspberry Pi 4 / Uputronics Rev 6.4 hardware. The tagged release rebuild must
+still pass automated image/asset validation, public checksum and metadata
+verification, Imager loading, credential review, and the documented shortened
+post-release smoke boot.
 
-Tester: repository maintainer. Final review date and approval rationale are
-pending.
+Tester and approver: repository maintainer. Approved 2026-07-22 based on all
+applicable hardware checks, the explicit check-15 scope waiver, and the 24-hour
+open-sky observation, which completed without a detected anomaly.
