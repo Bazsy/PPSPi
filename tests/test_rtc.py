@@ -74,6 +74,70 @@ class RtcCommandTests(unittest.TestCase):
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertIn("RTC restore completed", process.stdout)
 
+    def run_required_save(
+        self,
+        *,
+        synchronized: bool = True,
+        device: str = "/dev/null",
+        hwclock_exit: int = 0,
+    ) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            chronyc = bin_dir / "chronyc"
+            leap = "Normal" if synchronized else "Not synchronised"
+            chronyc.write_text(
+                f"#!/bin/sh\nprintf '%s\\n' 'Leap status     : {leap}'\n",
+                encoding="utf-8",
+            )
+            chronyc.chmod(0o755)
+            hwclock = bin_dir / "hwclock"
+            hwclock.write_text(
+                f"#!/bin/sh\nexit {hwclock_exit}\n",
+                encoding="utf-8",
+            )
+            hwclock.chmod(0o755)
+            config = load_config(PROJECT_ROOT, environ={})
+            config["RTC_DEVICE"] = device
+            config_path = root / "ppstime.env"
+            config_path.write_text(config_to_env(config), encoding="utf-8")
+            environment = dict(os.environ)
+            environment["PATH"] = f"{bin_dir}:{environment['PATH']}"
+            return subprocess.run(
+                [
+                    sys.executable,
+                    str(PROJECT_ROOT / "files" / "ppstime" / "ppstime-rtc"),
+                    "save",
+                    "--required",
+                    "--config",
+                    str(config_path),
+                ],
+                capture_output=True,
+                check=False,
+                env=environment,
+                text=True,
+            )
+
+    def test_required_save_fails_when_unsynchronized(self) -> None:
+        process = self.run_required_save(synchronized=False)
+        self.assertEqual(process.returncode, 1)
+        self.assertIn("not synchronized", process.stderr)
+
+    def test_required_save_fails_when_device_missing(self) -> None:
+        process = self.run_required_save(device="/dev/ppstime-missing-rtc")
+        self.assertEqual(process.returncode, 1)
+        self.assertIn("unavailable", process.stderr)
+
+    def test_required_save_fails_on_hwclock_error(self) -> None:
+        process = self.run_required_save(hwclock_exit=1)
+        self.assertEqual(process.returncode, 1)
+
+    def test_required_save_succeeds_after_real_write(self) -> None:
+        process = self.run_required_save()
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertIn("RTC save completed", process.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

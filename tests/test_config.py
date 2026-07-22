@@ -53,6 +53,30 @@ class ConfigTests(unittest.TestCase):
         for changes in invalid_cases:
             with self.subTest(changes=changes), self.assertRaises(ConfigError):
                 validate_config(dict(self.config, **changes))
+    def test_os_maintenance_defaults_and_validation(self) -> None:
+        self.assertEqual(self.config["OS_UPDATES_ENABLED"], "true")
+        self.assertEqual(self.config["OS_UPDATE_SCOPE"], "security")
+        self.assertEqual(self.config["OS_MAINTENANCE_DAY"], "Sun")
+        self.assertEqual(self.config["OS_MAINTENANCE_TIME"], "04:00")
+        self.assertEqual(self.config["OS_MAINTENANCE_TIMEZONE"], "UTC")
+        invalid_cases = (
+            {"OS_UPDATE_SCOPE": "everything"},
+            {"OS_MAINTENANCE_DAY": "Sunday"},
+            {"OS_MAINTENANCE_TIME": "25:00"},
+            {"OS_MAINTENANCE_TIMEZONE": "../UTC"},
+            {"OS_MAINTENANCE_RANDOM_DELAY_MINUTES": "361"},
+            {"OS_REBOOT_ENABLED": "yes"},
+        )
+        for changes in invalid_cases:
+            with self.subTest(changes=changes), self.assertRaises(ConfigError):
+                validate_config(dict(self.config, **changes))
+        validate_config(
+            dict(self.config, OS_MAINTENANCE_TIMEZONE="Europe/Stockholm")
+        )
+        with self.assertRaises(ConfigError):
+            validate_config(
+                dict(self.config, OS_MAINTENANCE_TIMEZONE="Europe/NotARealZone")
+            )
 
     def test_active_configuration_has_no_secret_keys(self) -> None:
         sensitive = ("PASSWORD", "SECRET", "TOKEN", "PRIVATE", "WIFI", "SSID", "KEY")

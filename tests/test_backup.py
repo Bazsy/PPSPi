@@ -196,7 +196,7 @@ class BackupTests(unittest.TestCase):
             with self.assertRaisesRegex(module.BackupError, "schema version"):
                 module.validate_manifest(manifest_payload)
 
-    def test_pre_host_threshold_backup_migrates_to_current_defaults(self) -> None:
+    def test_pre_host_and_maintenance_backup_migrates_to_current_defaults(self) -> None:
         module = load_backup_module()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -207,7 +207,7 @@ class BackupTests(unittest.TestCase):
             legacy_lines = [
                 line
                 for line in config_text.splitlines()
-                if not line.startswith("HOST_")
+                if not line.startswith(("HOST_", "OS_"))
             ]
             legacy_config = ("\n".join(legacy_lines) + "\n").encode("utf-8")
             manifest["config_sha256"] = module.sha256_bytes(legacy_config)
@@ -316,7 +316,14 @@ class BackupTests(unittest.TestCase):
             self.install_alternate_root(root)
             active_path = root / "etc" / "ppstime" / "ppstime.env"
             chrony_path = root / "etc" / "chrony" / "conf.d" / "ppstime.conf"
-            before = {path: path.read_bytes() for path in (active_path, chrony_path)}
+            policy_path = (
+                root / "etc" / "apt" / "apt.conf.d" / "52ppstime-unattended-upgrades"
+            )
+            timer_path = root / "etc" / "systemd" / "system" / "ppstime-maintenance.timer"
+            before = {
+                path: path.read_bytes()
+                for path in (active_path, chrony_path, policy_path, timer_path)
+            }
             boot = root / "boot" / "firmware"
             existing_backup = boot / "config.txt.ppstime-existing.bak"
             existing_backup.write_text("preserve me\n", encoding="utf-8")
@@ -328,6 +335,8 @@ class BackupTests(unittest.TestCase):
                 "#!/bin/sh\n"
                 f"printf 'corrupted\\n' > {str(active_path)!r}\n"
                 f"printf 'corrupted\\n' > {str(chrony_path)!r}\n"
+                f"printf 'corrupted\\n' > {str(policy_path)!r}\n"
+                f"printf 'corrupted\\n' > {str(timer_path)!r}\n"
                 f"printf 'new backup\\n' > {str(boot / 'config.txt.ppstime-new.bak')!r}\n"
                 "exit 1\n",
                 encoding="utf-8",

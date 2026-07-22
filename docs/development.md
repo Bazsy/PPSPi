@@ -48,6 +48,8 @@ The suite covers:
 - successful Stratum-1 and degraded timing states;
 - stateful health classification, hysteresis, duration, hooks, and metrics;
 - host storage, temperature, throttling, filesystem-error, and update-state fixtures;
+- unattended-upgrade policy/timer generation, package failures, reboot preflight,
+  and boot-ID acknowledgment;
 - strict backup archive, dry-run restore, hardware rejection, and rollback;
 - full `ppstime-test` fixture behavior;
 - alternate-root installation run twice;

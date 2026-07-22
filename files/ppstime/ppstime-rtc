@@ -8,7 +8,13 @@ import sys
 import time
 from pathlib import Path
 
-from ppstime_core import ConfigError, parse_env_file, parse_key_value_output, run_command, validate_config
+from ppstime_core import (
+    ConfigError,
+    parse_env_file,
+    parse_key_value_output,
+    run_command,
+    validate_config,
+)
 
 
 def rtc_is_uninitialized(stderr: str) -> bool:
@@ -22,8 +28,15 @@ def rtc_is_uninitialized(stderr: str) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("restore", "save"))
+    parser.add_argument(
+        "--required",
+        action="store_true",
+        help="fail instead of skipping when a requested save cannot complete",
+    )
     parser.add_argument("--config", type=Path, default=Path("/etc/ppstime/ppstime.env"))
     args = parser.parse_args()
+    if args.required and args.action != "save":
+        parser.error("--required is valid only with the save action")
     try:
         config = parse_env_file(args.config)
         validate_config(config)
@@ -41,14 +54,14 @@ def main() -> int:
             time.sleep(0.25)
     if not device.exists():
         print(f"PPSPi RTC device is unavailable: {device}", file=sys.stderr)
-        return 1 if args.action == "restore" else 0
+        return 1 if args.action == "restore" or args.required else 0
 
     if args.action == "save":
         tracking = run_command(["chronyc", "tracking"])
         fields = parse_key_value_output(tracking.stdout)
         if tracking.returncode != 0 or fields.get("Leap status") != "Normal":
             print("PPSPi RTC save skipped: Chrony is not synchronized", file=sys.stderr)
-            return 0
+            return 1 if args.required else 0
 
     hwclock_action = "--hctosys" if args.action == "restore" else "--systohc"
     result = run_command(

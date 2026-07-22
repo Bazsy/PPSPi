@@ -89,6 +89,23 @@ def main() -> int:
         else:
             subprocess.run(["systemctl", "disable", "--now", *rtc_units], check=True)
         subprocess.run(["systemctl", "enable", "--now", "ppstime-healthcheck.timer"], check=True)
+        subprocess.run(
+            ["systemctl", "disable", "--now", "apt-daily.timer", "apt-daily-upgrade.timer"],
+            check=True,
+        )
+        subprocess.run(
+            ["systemctl", "enable", "ppstime-maintenance-post-boot.timer"], check=True
+        )
+        if config["OS_UPDATES_ENABLED"] == "true":
+            subprocess.run(
+                ["systemctl", "enable", "--now", "ppstime-maintenance.timer"],
+                check=True,
+            )
+        else:
+            subprocess.run(
+                ["systemctl", "disable", "--now", "ppstime-maintenance.timer"],
+                check=True,
+            )
         print("PPSPi configuration applied")
         return 0
     except (ConfigError, OSError, subprocess.CalledProcessError) as exc:

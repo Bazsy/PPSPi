@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect PPSPi health after a maintenance reboot
+ConditionPathExists=/var/lib/ppstime/reboot-pending.json
+
+[Timer]
+OnBootSec=10min
+AccuracySec=30s
+Unit=ppstime-maintenance-post-boot.service
+
+[Install]
+WantedBy=timers.target

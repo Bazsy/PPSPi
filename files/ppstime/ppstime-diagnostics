@@ -33,6 +33,7 @@ COMMANDS = {
         "jq",
         "python3",
         "raspi-utils",
+        "unattended-upgrades",
     ],
     "systemd-chrony.txt": ["systemctl", "status", "--no-pager", "chrony.service"],
     "systemd-gpsd.txt": ["systemctl", "status", "--no-pager", "gpsd.service"],
@@ -43,6 +44,8 @@ COMMANDS = {
         "ppstime-rtc-restore.service",
         "ppstime-rtc-save.timer",
         "ppstime-healthcheck.timer",
+        "ppstime-maintenance.timer",
+        "ppstime-maintenance-post-boot.service",
     ],
     "chronyc-tracking.txt": ["chronyc", "tracking"],
     "chronyc-sources.txt": ["chronyc", "-n", "sources", "-v"],
@@ -64,6 +67,10 @@ COMMANDS = {
         "ppstime-rtc-save.service",
         "-u",
         "ppstime-healthcheck.service",
+        "-u",
+        "ppstime-maintenance.service",
+        "-u",
+        "ppstime-maintenance-post-boot.service",
     ],
 }
 
@@ -104,6 +111,18 @@ def write_host_health(path: Path) -> None:
             "error": result.stderr.strip() or "host health unavailable",
             "exit_code": result.returncode,
         }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def write_maintenance_state(path: Path) -> None:
+    result = run_command(["/usr/lib/ppstime/ppstime-maintenance", "status"], timeout=5)
+    try:
+        payload = json.loads(result.stdout) if result.returncode == 0 else {
+            "error": result.stderr.strip() or "maintenance state unavailable",
+            "exit_code": result.returncode,
+        }
+    except json.JSONDecodeError as exc:
+        payload = {"error": f"maintenance command returned invalid JSON: {exc}"}
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -186,6 +205,7 @@ def main() -> int:
             write_command(bundle / filename, command)
         write_health_state(bundle / "health-state.json")
         write_host_health(bundle / "host-health.json")
+        write_maintenance_state(bundle / "maintenance-state.json")
         write_command(bundle / "ppstest.txt", ["ppstest", config["PPS_DEVICE"]], timeout=3)
         write_command(bundle / "gpspipe.txt", ["gpspipe", "-w", "-n", "10"], timeout=10)
         write_command(

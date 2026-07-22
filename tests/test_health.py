@@ -768,6 +768,14 @@ class HealthTests(unittest.TestCase):
 
     def test_diagnostics_health_state_is_valid_json(self) -> None:
         module = load_diagnostics_module()
+        journal = module.COMMANDS["journal.txt"]
+        for unit in (
+            "ppstime-maintenance.service",
+            "ppstime-maintenance-post-boot.service",
+        ):
+            index = journal.index(unit)
+            self.assertEqual(journal[index - 1], "-u")
+        self.assertIn("unattended-upgrades", module.COMMANDS["packages.txt"])
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "health-state.json"
             module.run_command = lambda command, timeout: SimpleNamespace(
