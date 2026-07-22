@@ -13,6 +13,12 @@ reproducibility, and small reviewable changes.
    direct measured results for hardware claims.
 4. Never infer or copy a GPIO/RTC value from a visually similar board.
 
+New hardware does not need release-grade validation on its first pull request.
+Read [hardware support levels](docs/hardware-support-tiers.md): an experimental
+profile needs one exact setup, authoritative or measured mappings, automated
+tests, and a compact smoke report—not a 24-hour observation or a polished
+release document.
+
 ## Development workflow
 
 Create a focused branch, make the smallest coherent change, and run:
@@ -45,6 +51,11 @@ Include:
 - hardware and board revision, if tested;
 - documentation updates;
 - explicit unverified assumptions or deferred work.
+
+Plain issue comments and command output are acceptable hardware evidence. Help
+reviewers by using the compact report template; perfect prose and screenshots
+are not required. Maintainers should ask only for evidence that supports a
+specific compatibility, timing, or security claim.
 
 Do not include generated image files, credentials, device identifiers, private
 network details, or unsanitised support bundles.

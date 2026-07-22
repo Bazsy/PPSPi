@@ -1,17 +1,29 @@
 # Hardware
 
-## Supported target
+## Support status
+
+The exact v0.1.0 release-tested setup is a Raspberry Pi 4 Model B Rev 1.5 with a
+Uputronics GPS/RTC Expansion Board visibly marked Rev 6.4. The installed profile
+is based on manufacturer documentation for the V6.0+ board family, but other
+V6.x PCB revisions have not received the same physical release acceptance.
+Identify and validate another revision before describing it as release-tested.
+
+Other Pi and GNSS products can be added first as experimental support using the shorter
+[hardware contribution checklist](hardware-support-tiers.md). See the
+[roadmap](roadmap.md) for separately claimable Pi and receiver issues.
+
+## Release-tested target
 
 The initial profile targets:
 
 - Raspberry Pi 4 Model B;
-- Uputronics **GPS/RTC Expansion Board for Raspberry Pi** V6.0 or later, with
-  RV-3028-C7 RTC;
+- Uputronics **GPS/RTC Expansion Board for Raspberry Pi** Rev 6.4, using the
+  manufacturer-documented V6.0+ RV-3028-C7 profile;
 - active external GNSS antenna;
 - Ethernet;
 - Raspberry Pi OS Lite 64-bit Trixie.
 
-Physical acceptance used a Uputronics board visibly marked **Rev 6.4**. Its
+Physical acceptance used the Uputronics board visibly marked **Rev 6.4**. Its
 measured UART, PPS, RTC, backup-power, and cold-restore behavior matches the
 current-board documentation below.
 
@@ -84,9 +96,9 @@ Authoritative or manufacturer-selected references checked for this profile:
 Source verification does not replace direct board identification and hardware
 testing.
 
-## Board revision gate
+## Release-tested board revision gate
 
-Before a release candidate is accepted:
+Before this combination is promoted or retained as release-tested:
 
 1. photograph or record the HAT revision and RTC marking;
 2. confirm the RTC appears at `0x52` with `i2cdetect -y 1`;

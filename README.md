@@ -16,19 +16,32 @@ while staying close to the standard Raspberry Pi OS appliance model.
 > Check 15 has an explicit deployment-scope waiver rather than a measured pass.
 > Do not use PPSPi as a sole production time source.
 
+## Start here
+
+- **Building the supported appliance?** Follow the
+  [five-minute quick start](docs/quick-start.md). The normal release path needs
+  only one small Imager manifest download.
+- **Already running PPSPi?** Use [verification](#verify-the-server) or
+  [troubleshooting](docs/troubleshooting.md).
+- **Have different Pi or GNSS hardware?** See the
+  [hardware support levels](docs/hardware-support-tiers.md) and choose one
+  focused issue from the [roadmap](docs/roadmap.md).
+- **Developing PPSPi?** Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Supported hardware
 
-The first milestone deliberately supports one tested target:
-
-- Raspberry Pi 4 Model B;
-- Uputronics GPS/RTC Expansion Board V6.0+ with RV-3028-C7 RTC;
-- active GNSS antenna with a clear view of the sky;
-- wired Ethernet;
-- Raspberry Pi OS Lite 64-bit Trixie.
+| Support level | Raspberry Pi | GNSS/PPS hardware | Status |
+| --- | --- | --- | --- |
+| Release-tested | Raspberry Pi 4 Model B Rev 1.5 | Uputronics GPS/RTC Expansion Board Rev 6.4 using the V6.0+ profile | Available in v0.1.0 |
+| Planned | Pi 3 B/B+, CM4, Pi 5 Model B | Exact products named in roadmap issues | Not yet supported; contributors needed |
 
 CI verifies that the Pi 4 model policy is accepted and that Pi 3, Pi 5, Pi 400,
 and Zero models are rejected. This is configuration testing, **not hardware
-emulation**. See [hardware details and revision caveats](docs/hardware.md).
+emulation**. The current installer accepts only the release-tested combination;
+planned hardware has not yet earned Experimental status and is not a drop-in
+substitute. See
+[hardware details](docs/hardware.md) and
+[support levels](docs/hardware-support-tiers.md).
 
 ## How time reaches your network
 
@@ -51,24 +64,18 @@ for startup and GNSS outages. The RTC is only an offline boot aid.
 
 ## Download and flash an image
 
-Download the hardware-tested v0.1.0 image from
-[GitHub Releases](https://github.com/Bazsy/PPSPi/releases):
+For the normal beginner path, open the
+[latest release](https://github.com/Bazsy/PPSPi/releases/latest), expand
+**Assets**, and download only:
 
-- `ppspi-<version>-raspios-trixie-arm64.img.xz`;
-- the matching `.sha256` file;
-- `build-info.json`;
-- `ppspi-<version>-raspios-trixie-arm64.rpi-imager-manifest`.
-
-Verify the image before flashing:
-
-```console
-sha256sum --check ppspi-<version>-raspios-trixie-arm64.img.xz.sha256
-```
+`ppspi-<version>-raspios-trixie-arm64.rpi-imager-manifest`
 
 Use current Raspberry Pi Imager 2.x and open the `.rpi-imager-manifest` file,
-not the image's **Use custom** path. The manifest identifies the exact release
-image as `cloudinit-rpi`, restricts it to Raspberry Pi 4 Model B, and enables
-Imager customisation. Then:
+not the image's **Use custom** path. The manifest identifies Raspberry Pi 4 Model
+B as the only supported target in PPSPi's Imager metadata, enables customisation
+through `cloudinit-rpi`, and supplies versioned image URLs, sizes, and SHA-256
+values. The installed PPSPi model policy remains the runtime compatibility guard.
+Then:
 
 1. choose a hostname and create the initial user;
 2. set locale and timezone;
@@ -78,9 +85,10 @@ Imager customisation. Then:
 5. leave Wi-Fi unset for the initial wired-Ethernet target.
 
 PPSPi ships no default password, SSH key, Wi-Fi credential, or enabled SSH
-service. See the [Raspberry Pi Imager guide](docs/raspberry-pi-imager.md) for
-double-click and Content Repository loading, local/test images, integrity
-metadata, and the manual boot-partition fallback.
+service. The separate image, checksum, and build-info assets remain available
+for offline flashing and independent verification; beginners do not need to
+download them. See the [quick start](docs/quick-start.md) or
+[Raspberry Pi Imager guide](docs/raspberry-pi-imager.md).
 
 ## Install on an existing Raspberry Pi OS Lite system
 
@@ -161,7 +169,10 @@ Generate a support bundle with:
 sudo ppstime-diagnostics --output-dir /tmp
 ```
 
-Inspect confirmed appliance health and transition state with:
+`ppstime-health` and the passive stateful monitor are available on the current
+`0.2.0-dev` development branch; they are not included in the published v0.1.0
+image. On a `0.2.0-dev` installation, inspect confirmed appliance health and
+transition state with:
 
 ```console
 ppstime-health
@@ -240,12 +251,17 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - GPS serial latency correction defaults to zero and requires measurement before
   tuning; GPS is therefore marked `noselect` and used to label PPS.
 - Generic UART/PPS hardware and other Raspberry Pi models are deferred.
+  Contributor-sized validation issues are listed in the
+  [roadmap](docs/roadmap.md).
 
 ## Documentation
 
+- [Five-minute quick start](docs/quick-start.md)
+- [Roadmap](docs/roadmap.md)
 - [Installation](docs/installation.md)
 - [Raspberry Pi Imager](docs/raspberry-pi-imager.md)
 - [Hardware](docs/hardware.md)
+- [Hardware support levels](docs/hardware-support-tiers.md)
 - [Architecture](docs/architecture.md)
 - [Chrony design](docs/chrony.md)
 - [Diagnostics](docs/diagnostics.md)

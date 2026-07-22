@@ -2,12 +2,16 @@
 
 This guide converts a clean Raspberry Pi OS Lite 64-bit Trixie installation
 into a PPSPi appliance. For downloadable images, use the supported
-[Raspberry Pi Imager manifest workflow](raspberry-pi-imager.md).
+[five-minute quick start](quick-start.md) or
+[Raspberry Pi Imager manifest workflow](raspberry-pi-imager.md). The image path
+is recommended for beginners; this source installation guide is the advanced
+path.
 
 ## Prerequisites
 
 - Raspberry Pi 4 Model B;
-- Uputronics GPS/RTC Expansion Board V6.0+ with RV-3028-C7 RTC;
+- Uputronics GPS/RTC Expansion Board V6.0+ with RV-3028-C7 RTC; v0.1.0 release
+  acceptance used a board visibly marked Rev 6.4;
 - weather-appropriate active antenna connected before power-on and placed
   outside with a broad sky view for continuous service;
 - wired Ethernet;
@@ -125,7 +129,6 @@ After reboot:
 
 ```console
 ppstime-status
-ppstime-health
 sudo ppstime-test
 systemctl status chrony gpsd
 chronyc sources -v
@@ -138,9 +141,13 @@ events, and `#* PPS` in Chrony. A large visible-satellite count alone does not
 prove sufficient signal or geometry. `ppstime-test` intentionally returns
 non-zero while essential timing components are unavailable.
 
+When installing the current `0.2.0-dev` development branch, you can also run
+`ppstime-health`. This command is not included in the published v0.1.0 image.
+
 The passive health monitor starts after five minutes and needs two matching
 observations to establish or change state. `UNKNOWN` immediately after boot is
-therefore expected. See [health monitoring and soak testing](monitoring.md).
+therefore expected on `0.2.0-dev`. See
+[health monitoring and soak testing](monitoring.md).
 
 Optionally narrow NTP access to the actual LAN when the broader private-range
 default is not desired:
