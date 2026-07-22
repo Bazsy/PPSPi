@@ -40,7 +40,7 @@ and leave running:
    [issue #67](https://github.com/Bazsy/PPSPi/issues/67);
 - verified PPSPi application update and rollback:
    [issue #68](https://github.com/Bazsy/PPSPi/issues/68);
-- configuration export and disaster recovery:
+- configuration export and disaster recovery (implemented in `0.2.0-dev`):
    [issue #69](https://github.com/Bazsy/PPSPi/issues/69);
 - host storage, temperature, throttling, and update health:
    [issue #77](https://github.com/Bazsy/PPSPi/issues/77);

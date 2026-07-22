@@ -1,0 +1,562 @@
+#!/usr/bin/env python3
+"""Export, inspect, and restore validated PPSPi configuration backups."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import io
+import json
+import os
+import subprocess
+import sys
+import tarfile
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from ppstime_core import (
+    ConfigError,
+    config_to_env,
+    load_config,
+    model_is_supported,
+    parse_env_file,
+    validate_config,
+)
+
+ARCHIVE_FORMAT = "ppstime-config-backup"
+SCHEMA_VERSION = 1
+ARCHIVE_MEMBERS = frozenset({"manifest.json", "ppstime.env"})
+MAX_ARCHIVE_BYTES = 2 * 1024 * 1024
+MAX_MEMBER_BYTES = 256 * 1024
+MANIFEST_KEYS = frozenset(
+    {
+        "format",
+        "schema_version",
+        "created_utc",
+        "profile",
+        "hardware_model",
+        "supported_model_pattern",
+        "project_version",
+        "git_commit",
+        "raspberry_pi_os_release",
+        "architecture",
+        "config_sha256",
+    }
+)
+BUILD_INFO_KEYS = {
+    "project_version": "project_version",
+    "git_commit": "git_commit",
+    "raspberry_pi_os_release": "raspberry_pi_os_release",
+    "architecture": "architecture",
+}
+DEFAULT_CONFIG = Path("/etc/ppstime/ppstime.env")
+DEFAULT_BUILD_INFO = Path("/etc/ppstime/build-info.json")
+DEFAULT_MODEL_FILE = Path("/proc/device-tree/model")
+DEFAULT_SOURCE_ROOT = Path("/usr/share/ppstime")
+DEFAULT_CONFIGURE_COMMAND = Path("/usr/lib/ppstime/configure-profile.py")
+
+
+class BackupError(ValueError):
+    """Raised when a PPSPi configuration backup is invalid or unsafe."""
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def format_timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def compact_timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def parse_timestamp(value: Any) -> datetime:
+    if not isinstance(value, str):
+        raise BackupError("manifest created_utc must be a string")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise BackupError(f"manifest created_utc is invalid: {value!r}") from exc
+    if parsed.tzinfo is None:
+        raise BackupError("manifest created_utc must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def sha256_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def rooted(root: Path, absolute_path: Path | str) -> Path:
+    return root / str(absolute_path).lstrip("/")
+
+
+def read_hardware_model(model: str | None, model_file: Path) -> str:
+    if model is not None:
+        value = model.strip().rstrip("\x00")
+    else:
+        try:
+            value = model_file.read_text(encoding="utf-8").strip().rstrip("\x00")
+        except OSError as exc:
+            raise BackupError(
+                f"cannot read target hardware model from {model_file}: {exc}"
+            ) from exc
+    if not value or any(character in value for character in ("\x00", "\n", "\r")):
+        raise BackupError("hardware model is empty or malformed")
+    return value
+
+
+def read_build_info(path: Path) -> dict[str, str | None]:
+    result: dict[str, str | None] = {manifest_key: None for manifest_key in BUILD_INFO_KEYS}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return result
+    except (OSError, json.JSONDecodeError) as exc:
+        raise BackupError(f"cannot read build info {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise BackupError("build-info.json must contain an object")
+    for source_key, manifest_key in BUILD_INFO_KEYS.items():
+        value = payload.get(source_key)
+        if value is not None and (not isinstance(value, str) or not value):
+            raise BackupError(f"build-info {source_key} must be a non-empty string")
+        result[manifest_key] = value
+    return result
+
+
+def load_active_config(path: Path) -> dict[str, str]:
+    config = parse_env_file(path)
+    validate_config(config)
+    return config
+
+
+def make_manifest(
+    config: dict[str, str],
+    model: str,
+    build_info: dict[str, str | None],
+    config_content: bytes,
+    created_at: datetime,
+) -> dict[str, Any]:
+    return {
+        "format": ARCHIVE_FORMAT,
+        "schema_version": SCHEMA_VERSION,
+        "created_utc": format_timestamp(created_at),
+        "profile": config["PPSTIME_PROFILE"],
+        "hardware_model": model,
+        "supported_model_pattern": config["SUPPORTED_MODEL_PATTERN"],
+        "project_version": build_info["project_version"],
+        "git_commit": build_info["git_commit"],
+        "raspberry_pi_os_release": build_info["raspberry_pi_os_release"],
+        "architecture": build_info["architecture"],
+        "config_sha256": sha256_bytes(config_content),
+    }
+
+
+def tar_info(name: str, content: bytes, mode: int, created_at: datetime) -> tarfile.TarInfo:
+    info = tarfile.TarInfo(name=name)
+    info.size = len(content)
+    info.mode = mode
+    info.mtime = int(created_at.timestamp())
+    info.uid = 0
+    info.gid = 0
+    info.uname = "root"
+    info.gname = "root"
+    return info
+
+
+def create_archive(
+    output: Path,
+    *,
+    config_path: Path,
+    build_info_path: Path,
+    model: str,
+    created_at: datetime | None = None,
+) -> dict[str, Any]:
+    if output.exists():
+        raise BackupError(f"refusing to overwrite existing backup: {output}")
+    config = load_active_config(config_path)
+    canonical_config = config_to_env(config).encode("utf-8")
+    build_info = read_build_info(build_info_path)
+    timestamp = created_at or utc_now()
+    manifest = make_manifest(config, model, build_info, canonical_config, timestamp)
+    manifest_content = (
+        json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    ).encode("utf-8")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{output.name}.", dir=output.parent)
+    os.close(descriptor)
+    temporary_path = Path(temporary_name)
+    try:
+        with tarfile.open(temporary_path, "w:gz", format=tarfile.PAX_FORMAT) as archive:
+            archive.addfile(
+                tar_info("manifest.json", manifest_content, 0o644, timestamp),
+                io.BytesIO(manifest_content),
+            )
+            archive.addfile(
+                tar_info("ppstime.env", canonical_config, 0o600, timestamp),
+                io.BytesIO(canonical_config),
+            )
+        os.chmod(temporary_path, 0o600)
+        os.replace(temporary_path, output)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return manifest
+
+
+def read_member(archive: tarfile.TarFile, member: tarfile.TarInfo) -> bytes:
+    if not member.isfile() or member.issym() or member.islnk():
+        raise BackupError(f"backup member is not a regular file: {member.name}")
+    if member.size < 0 or member.size > MAX_MEMBER_BYTES:
+        raise BackupError(f"backup member has unsafe size: {member.name}")
+    stream = archive.extractfile(member)
+    if stream is None:
+        raise BackupError(f"cannot read backup member: {member.name}")
+    content = stream.read(MAX_MEMBER_BYTES + 1)
+    if len(content) != member.size or len(content) > MAX_MEMBER_BYTES:
+        raise BackupError(f"backup member size mismatch: {member.name}")
+    return content
+
+
+def validate_manifest(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict) or set(payload) != MANIFEST_KEYS:
+        raise BackupError("backup manifest keys do not match schema")
+    if (
+        payload["format"] != ARCHIVE_FORMAT
+        or type(payload["schema_version"]) is not int
+        or payload["schema_version"] != SCHEMA_VERSION
+    ):
+        raise BackupError("unsupported backup format or schema version")
+    parse_timestamp(payload["created_utc"])
+    for key in ("profile", "hardware_model", "supported_model_pattern", "config_sha256"):
+        if (
+            not isinstance(payload[key], str)
+            or not payload[key]
+            or any(character in payload[key] for character in ("\x00", "\n", "\r"))
+        ):
+            raise BackupError(f"manifest {key} must be a non-empty string")
+    for key in ("project_version", "git_commit", "raspberry_pi_os_release", "architecture"):
+        if payload[key] is not None and (
+            not isinstance(payload[key], str) or not payload[key]
+        ):
+            raise BackupError(f"manifest {key} must be a non-empty string or null")
+    digest = payload["config_sha256"]
+    if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+        raise BackupError("manifest config_sha256 is invalid")
+    return payload
+
+
+def read_archive(path: Path) -> tuple[dict[str, Any], bytes, dict[str, str]]:
+    try:
+        archive_size = path.stat().st_size
+    except OSError as exc:
+        raise BackupError(f"cannot inspect backup {path}: {exc}") from exc
+    if archive_size <= 0 or archive_size > MAX_ARCHIVE_BYTES:
+        raise BackupError("backup archive size is invalid")
+    try:
+        with tarfile.open(path, "r:gz") as archive:
+            members = archive.getmembers()
+            names = [member.name for member in members]
+            if len(names) != len(set(names)) or set(names) != ARCHIVE_MEMBERS:
+                raise BackupError(
+                    "backup must contain exactly manifest.json and ppstime.env"
+                )
+            by_name = {member.name: member for member in members}
+            manifest_content = read_member(archive, by_name["manifest.json"])
+            config_content = read_member(archive, by_name["ppstime.env"])
+    except BackupError:
+        raise
+    except (OSError, tarfile.TarError) as exc:
+        raise BackupError(f"cannot read backup archive: {exc}") from exc
+    try:
+        manifest_payload = json.loads(manifest_content.decode("utf-8"))
+        config_text = config_content.decode("utf-8")
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise BackupError(f"backup contains invalid text or JSON: {exc}") from exc
+    manifest = validate_manifest(manifest_payload)
+    if sha256_bytes(config_content) != manifest["config_sha256"]:
+        raise BackupError("backup configuration SHA-256 does not match manifest")
+    with tempfile.TemporaryDirectory(prefix="ppstime-backup-validate-") as temporary:
+        config_path = Path(temporary) / "ppstime.env"
+        config_path.write_text(config_text, encoding="utf-8")
+        config = load_active_config(config_path)
+    if config["PPSTIME_PROFILE"] != manifest["profile"]:
+        raise BackupError("backup profile does not match manifest")
+    if config["SUPPORTED_MODEL_PATTERN"] != manifest["supported_model_pattern"]:
+        raise BackupError("backup model policy does not match manifest")
+    if config_to_env(config).encode("utf-8") != config_content:
+        raise BackupError("backup configuration is not in canonical PPSPi format")
+    return manifest, config_content, config
+
+
+def render_summary(manifest: dict[str, Any]) -> str:
+    rows = (
+        ("Created", manifest["created_utc"]),
+        ("Profile", manifest["profile"]),
+        ("Hardware model", manifest["hardware_model"]),
+        ("PPSPi version", manifest["project_version"] or "unknown"),
+        ("Source commit", manifest["git_commit"] or "unknown"),
+        ("Raspberry Pi OS", manifest["raspberry_pi_os_release"] or "unknown"),
+        ("Architecture", manifest["architecture"] or "unknown"),
+        ("Configuration SHA-256", manifest["config_sha256"]),
+    )
+    return "\n".join(f"{label + ':':<24} {value}" for label, value in rows)
+
+
+def managed_paths(root: Path) -> list[Path]:
+    paths = [
+        rooted(root, "/etc/ppstime/ppstime.env"),
+        rooted(root, "/etc/chrony/conf.d/ppstime.conf"),
+        rooted(root, "/etc/default/gpsd"),
+    ]
+    for boot_root in ("/boot/firmware", "/boot"):
+        for name in ("config.txt", "cmdline.txt"):
+            paths.append(rooted(root, f"{boot_root}/{name}"))
+    return paths
+
+
+def boot_backup_paths(root: Path) -> set[Path]:
+    backups: set[Path] = set()
+    for boot_root in ("/boot/firmware", "/boot"):
+        directory = rooted(root, boot_root)
+        for name in ("config.txt", "cmdline.txt"):
+            backups.update(directory.glob(f"{name}.ppstime-*.bak"))
+    return backups
+
+
+def remove_new_boot_backups(root: Path, before: set[Path]) -> None:
+    for path in boot_backup_paths(root) - before:
+        path.unlink(missing_ok=True)
+
+
+def snapshot_paths(paths: list[Path]) -> dict[Path, tuple[bytes, int] | None]:
+    snapshot: dict[Path, tuple[bytes, int] | None] = {}
+    for path in paths:
+        try:
+            snapshot[path] = (path.read_bytes(), path.stat().st_mode & 0o777)
+        except FileNotFoundError:
+            snapshot[path] = None
+        except OSError as exc:
+            raise BackupError(f"cannot snapshot {path}: {exc}") from exc
+    return snapshot
+
+
+def restore_snapshot(snapshot: dict[Path, tuple[bytes, int] | None]) -> None:
+    for path, state in snapshot.items():
+        if state is None:
+            path.unlink(missing_ok=True)
+            continue
+        content, mode = state
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.rollback.", dir=path.parent
+        )
+        temporary_path = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.chmod(temporary_path, mode)
+            os.replace(temporary_path, path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+
+def validate_against_installed_profile(
+    config_content: bytes, source_root: Path
+) -> tuple[Path, tempfile.TemporaryDirectory[str], dict[str, str]]:
+    temporary = tempfile.TemporaryDirectory(prefix="ppstime-backup-restore-")
+    config_path = Path(temporary.name) / "ppstime.env"
+    config_path.write_bytes(config_content)
+    try:
+        config = load_config(
+            source_root,
+            profile=None,
+            custom_path=config_path,
+            environ={},
+        )
+    except Exception:
+        temporary.cleanup()
+        raise
+    return config_path, temporary, config
+
+
+def default_rollback_dir(root: Path) -> Path:
+    return rooted(root, "/var/backups/ppstime")
+
+
+def available_rollback_path(directory: Path, created_at: datetime) -> Path:
+    base = f"ppstime-pre-restore-{compact_timestamp(created_at)}"
+    for suffix in ("", *(f"-{index}" for index in range(1, 1000))):
+        candidate = directory / f"{base}{suffix}.tar.gz"
+        if not candidate.exists():
+            return candidate
+    raise BackupError("cannot allocate a unique pre-restore backup filename")
+
+
+def run_restore(args: argparse.Namespace) -> int:
+    manifest, config_content, archive_config = read_archive(args.archive)
+    source_root = args.source_root.resolve()
+    root = args.root.resolve()
+    model_file = args.model_file or rooted(root, DEFAULT_MODEL_FILE)
+    target_model = read_hardware_model(args.model, model_file)
+    config_path, temporary, restored_config = validate_against_installed_profile(
+        config_content, source_root
+    )
+    try:
+        if restored_config != archive_config:
+            raise BackupError("backup configuration changes under the installed profile")
+        if not model_is_supported(target_model, restored_config):
+            raise BackupError(
+                f"target hardware model {target_model!r} is incompatible with profile "
+                f"{restored_config['PPSTIME_PROFILE']!r}"
+            )
+        print(render_summary(manifest))
+        print(f"Target hardware model:  {target_model}")
+        command = [
+            str(args.configure_command),
+            "--source-root",
+            str(source_root),
+            "--root",
+            str(root),
+            "--config",
+            str(config_path),
+            "--model",
+            target_model,
+        ]
+        if args.dry_run:
+            command.append("--dry-run")
+            process = subprocess.run(command, check=False)
+            if process.returncode != 0:
+                raise BackupError(
+                    f"configuration dry-run failed with exit code {process.returncode}"
+                )
+            print("Dry run complete; no files were changed")
+            return 0
+        if not args.yes:
+            raise BackupError("restore requires --dry-run or explicit --yes")
+        if root == Path("/") and os.geteuid() != 0:
+            raise BackupError("restoring the live appliance must run as root")
+
+        current_config = rooted(root, DEFAULT_CONFIG)
+        rollback_archive: Path | None = None
+        if current_config.exists():
+            rollback_dir = args.rollback_dir or default_rollback_dir(root)
+            rollback_archive = available_rollback_path(rollback_dir, utc_now())
+            current_model_file = rooted(root, DEFAULT_MODEL_FILE)
+            current_model = read_hardware_model(
+                args.model,
+                current_model_file if current_model_file.exists() else model_file,
+            )
+            create_archive(
+                rollback_archive,
+                config_path=current_config,
+                build_info_path=rooted(root, DEFAULT_BUILD_INFO),
+                model=current_model,
+            )
+
+        snapshot = snapshot_paths(managed_paths(root))
+        boot_backups_before = boot_backup_paths(root)
+        process = subprocess.run(command, check=False)
+        if process.returncode != 0:
+            restore_snapshot(snapshot)
+            remove_new_boot_backups(root, boot_backups_before)
+            raise BackupError(
+                f"configuration restore failed with exit code {process.returncode}; "
+                "managed files were rolled back"
+            )
+        try:
+            applied = load_active_config(current_config)
+        except (ConfigError, OSError) as exc:
+            restore_snapshot(snapshot)
+            remove_new_boot_backups(root, boot_backups_before)
+            raise BackupError(
+                "restored configuration is invalid; managed files were rolled back"
+            ) from exc
+        if applied != restored_config:
+            restore_snapshot(snapshot)
+            remove_new_boot_backups(root, boot_backups_before)
+            raise BackupError(
+                "restored configuration verification failed; managed files were rolled back"
+            )
+        if rollback_archive is not None:
+            print(f"Pre-restore rollback backup: {rollback_archive}")
+        print("Restore complete; reboot the appliance to activate boot and timing changes")
+        return 0
+    finally:
+        temporary.cleanup()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    export_parser = subparsers.add_parser("export", help="create a configuration backup")
+    export_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    export_parser.add_argument("--build-info", type=Path, default=DEFAULT_BUILD_INFO)
+    export_parser.add_argument("--model")
+    export_parser.add_argument("--model-file", type=Path, default=DEFAULT_MODEL_FILE)
+    export_parser.add_argument("--output", type=Path)
+
+    inspect_parser = subparsers.add_parser("inspect", help="validate and summarize a backup")
+    inspect_parser.add_argument("archive", type=Path)
+    inspect_parser.add_argument("--json", action="store_true")
+
+    restore_parser = subparsers.add_parser("restore", help="validate and restore a backup")
+    restore_parser.add_argument("archive", type=Path)
+    restore_parser.add_argument("--root", type=Path, default=Path("/"), help=argparse.SUPPRESS)
+    restore_parser.add_argument(
+        "--source-root", type=Path, default=DEFAULT_SOURCE_ROOT, help=argparse.SUPPRESS
+    )
+    restore_parser.add_argument(
+        "--configure-command",
+        type=Path,
+        default=DEFAULT_CONFIGURE_COMMAND,
+        help=argparse.SUPPRESS,
+    )
+    restore_parser.add_argument("--model", help=argparse.SUPPRESS)
+    restore_parser.add_argument("--model-file", type=Path, help=argparse.SUPPRESS)
+    restore_parser.add_argument("--rollback-dir", type=Path, help=argparse.SUPPRESS)
+    action = restore_parser.add_mutually_exclusive_group(required=True)
+    action.add_argument("--dry-run", action="store_true")
+    action.add_argument("--yes", action="store_true", help="confirm writing validated files")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        if args.command == "export":
+            model = read_hardware_model(args.model, args.model_file)
+            output = args.output or Path.cwd() / (
+                f"ppstime-backup-{compact_timestamp(utc_now())}.tar.gz"
+            )
+            manifest = create_archive(
+                output,
+                config_path=args.config,
+                build_info_path=args.build_info,
+                model=model,
+            )
+            print(output)
+            print(render_summary(manifest))
+            print("Review the mode-0600 archive locally before sharing it")
+            return 0
+        if args.command == "inspect":
+            manifest, _, _ = read_archive(args.archive)
+            if args.json:
+                print(json.dumps(manifest, indent=2, sort_keys=True))
+            else:
+                print(render_summary(manifest))
+            return 0
+        return run_restore(args)
+    except (BackupError, ConfigError, OSError, subprocess.SubprocessError) as exc:
+        print(f"ppstime-backup: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

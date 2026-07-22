@@ -52,6 +52,10 @@ class InstallerTests(unittest.TestCase):
             self.assertIn("dtparam=audio=on", installed_boot)
             self.assertNotIn("console=serial0", cmdline_txt.read_text(encoding="utf-8"))
             self.assertTrue((root / "usr" / "local" / "sbin" / "ppstime-status").is_symlink())
+            backup_link = root / "usr" / "local" / "sbin" / "ppstime-backup"
+            self.assertTrue(backup_link.is_symlink())
+            self.assertEqual(backup_link.readlink(), Path("/usr/lib/ppstime/ppstime-backup"))
+            self.assertTrue((root / "usr" / "lib" / "ppstime" / "ppstime-backup").is_file())
             health_link = root / "usr" / "local" / "sbin" / "ppstime-health"
             self.assertTrue(health_link.is_symlink())
             self.assertEqual(health_link.readlink(), Path("/usr/lib/ppstime/ppstime-health"))

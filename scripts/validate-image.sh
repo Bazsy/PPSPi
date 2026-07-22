@@ -79,9 +79,12 @@ sudo jq -e \
     '.raspberry_pi_os_release == "trixie" and .architecture == "arm64"' \
     "${root_mount}/etc/ppstime/build-info.json" > /dev/null
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-status" ]]
+[[ -x "${root_mount}/usr/lib/ppstime/ppstime-backup" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-health" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-healthcheck" ]]
 [[ -L "${root_mount}/usr/local/sbin/ppstime-health" ]]
+[[ -L "${root_mount}/usr/local/sbin/ppstime-backup" ]]
+[[ "$(sudo readlink "${root_mount}/usr/local/sbin/ppstime-backup")" == "/usr/lib/ppstime/ppstime-backup" ]]
 [[ "$(sudo readlink "${root_mount}/usr/local/sbin/ppstime-health")" == "/usr/lib/ppstime/ppstime-health" ]]
 [[ -f "${root_mount}/etc/systemd/system/ppstime-healthcheck.service" ]]
 [[ -f "${root_mount}/etc/systemd/system/ppstime-healthcheck.timer" ]]

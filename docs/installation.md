@@ -110,6 +110,16 @@ PPSPi owns these locations:
 - `/etc/systemd/system/ppstime-*` — RTC and health units;
 - Chrony and GPSD drop-in directories.
 
+Before changing storage, hardware, or PPSPi versions, create a portable backup:
+
+```console
+ppstime-backup export --output "$HOME/ppstime-backup.tar.gz"
+```
+
+See [configuration backup and disaster recovery](backup-restore.md). The archive
+contains PPSPi configuration only; recreate account, SSH, and Wi-Fi choices
+through Imager or an operator-managed encrypted system backup.
+
 The installer detects `/boot/firmware/config.txt` and `cmdline.txt` first, then
 their legacy `/boot` locations. It adds one marked block to `config.txt` and
 removes serial console tokens from the one-line `cmdline.txt`.
