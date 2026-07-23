@@ -172,6 +172,6 @@ systemctl list-timers ppstime-healthcheck.timer
 journalctl -u ppstime-healthcheck.service
 ```
 
-See [health monitoring and soak testing](monitoring.md) for state semantics,
-guarded local hooks, Prometheus textfile integration, and the 7–14 day soak
-procedure.
+See [health monitoring and operational checks](monitoring.md) for state
+semantics, guarded local hooks, Prometheus textfile integration, and optional
+runtime evidence collection.

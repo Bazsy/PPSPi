@@ -27,8 +27,6 @@ explicit release gates. See the
 The next milestone makes the existing appliance easier to install, understand,
 and leave running:
 
-- public v0.1.0 7–14 day operational soak:
-   [issue #60](https://github.com/Bazsy/PPSPi/issues/60);
 - beginner-facing roadmap and quick start:
    [issue #63](https://github.com/Bazsy/PPSPi/issues/63) and
    [issue #65](https://github.com/Bazsy/PPSPi/issues/65);
@@ -49,15 +47,10 @@ and leave running:
 - optional read-only LAN dashboard with short history graphs:
    [issue #78](https://github.com/Bazsy/PPSPi/issues/78).
 
-These items are not a strict serial queue. The unchanged public-v0.1.0 soak in
-issue #60 can run in parallel with documentation, design, and prototype work.
 Configuration export/recovery in issue #69 should be established before relying
 on application-update rollback, and issue #68 must integrate with the
-maintenance-window behavior designed in issue #67.
-
-Issue #60 intentionally remains on the unmodified public v0.1.0 image and must
-not install or rely on the `0.2.0-dev` stateful health monitor. That monitor was
-delivered in [issue #58](https://github.com/Bazsy/PPSPi/issues/58); it remains
+maintenance-window behavior designed in issue #67. The stateful health monitor
+delivered in [issue #58](https://github.com/Bazsy/PPSPi/issues/58) remains
 notification-only and never restarts or reconfigures the timing chain.
 
 ## v0.3.x: contributor-led hardware expansion

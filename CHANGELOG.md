@@ -9,7 +9,7 @@ All notable changes are documented here. PPSPi follows
 
 - stateful passive health monitoring with two-observation hysteresis,
   transition duration/reason tracking, human/JSON/Prometheus output, guarded
-  local notification hooks, and a documented 7–14 day operational soak.
+  local notification hooks, and documented lightweight operational checks.
 - beginner quick-start and roadmap documentation, a one-file Imager manifest
   path, and experimental/community/release-tested hardware support levels.
 - strict mode-0600 configuration export/inspect/restore with target hardware

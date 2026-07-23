@@ -1,4 +1,4 @@
-# Health monitoring and soak testing
+# Health monitoring and operational checks
 
 PPSPi monitors timing health without changing Chrony, GPSD, kernel PPS, or RTC
 state. Monitoring never restarts services or selects a time source. Chrony
@@ -122,11 +122,13 @@ journal reports the validation error and leaves the last file untouched. After
 inspection, reboot to recreate volatile state or remove
 `/run/ppstime/health-state.json`; never replace it with hand-written state.
 
-## Seven-to-fourteen-day release soak
+## Optional operational check
 
-Run a normal-use soak on the public release image before making timing-chain
-changes. Keep the hardware, antenna, power supply, network topology, and PPSPi
-configuration stable unless investigating a recorded fault.
+For additional confidence after installation or a release, run a normal-use
+operational check for as long as is useful to the deployment. This is not a
+release gate and has no minimum duration. Keep the hardware, antenna, power
+supply, network topology, and PPSPi configuration stable while collecting
+evidence unless investigating a recorded fault.
 
 At the start, record non-sensitive identity and baseline state:
 
@@ -138,8 +140,8 @@ systemctl show chrony gpsd -p ActiveState -p NRestarts
 systemctl --failed --no-legend
 ```
 
-During the soak, review health transitions daily rather than repeatedly changing
-the appliance:
+During the check, review health transitions rather than repeatedly changing the
+appliance:
 
 ```console
 ppstime-health
@@ -154,7 +156,7 @@ sudo ppstime-test
 ppstime-health --json
 systemctl show chrony gpsd -p ActiveState -p NRestarts
 systemctl --failed --no-legend
-journalctl -u ppstime-healthcheck.service --since=-14days --output=short-iso
+journalctl -u ppstime-healthcheck.service --since=-24hours --output=short-iso
 sudo ppstime-diagnostics --output-dir /tmp
 ```
 
@@ -163,11 +165,11 @@ context for every transition. Expected `NETWORK_FALLBACK` during a known antenna
 interruption is different from unexplained `HARDWARE_ERROR` or
 `UNSYNCHRONIZED` operation.
 
-A successful soak has no unexplained hardware or synchronization transitions,
-no failed units or service restart growth, a passing final deep test, and healthy
+A useful check has no unexplained hardware or synchronization transitions, no
+failed units or service restart growth, a passing final deep test, and healthy
 PPS selection after any explained recovery. Reboot resets the `/run` state, so
 record the reboot and use the journal plus service restart counters when
-interpreting duration.
+interpreting the evidence.
 
 Chrony offsets and monitor state are operational evidence only. They do not
 establish independently traceable timing accuracy.
