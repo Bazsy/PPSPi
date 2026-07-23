@@ -173,7 +173,7 @@ host transitions invoke hooks.
 - last successful update-check age and required-reboot state.
 
 No path, device, source address, process, or reason is used as an unbounded label.
-See [health monitoring and soak testing](monitoring.md) for node-exporter
+See [health monitoring and operational checks](monitoring.md) for node-exporter
 textfile integration.
 
 ## Diagnostics and troubleshooting

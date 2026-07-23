@@ -164,7 +164,7 @@ the published v0.1.0 image.
 The passive health monitor starts after five minutes and needs two matching
 observations to establish or change state. `UNKNOWN` immediately after boot is
 therefore expected on `0.2.0-dev`. See
-[health monitoring and soak testing](monitoring.md).
+[health monitoring and operational checks](monitoring.md).
 
 Optionally narrow NTP access to the actual LAN when the broader private-range
 default is not desired:
