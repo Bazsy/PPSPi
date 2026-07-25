@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_VERSION = (PROJECT_ROOT / "VERSION").read_text(encoding="ascii").strip()
 
 
 class InstallerTests(unittest.TestCase):
@@ -119,7 +120,7 @@ class InstallerTests(unittest.TestCase):
                     encoding="ascii"
                 )
             )
-            self.assertEqual(installation_identity["version"], "0.2.0-dev")
+            self.assertEqual(installation_identity["version"], PROJECT_VERSION)
             self.assertIn(
                 "usr/lib/ppstime/ppstime-update",
                 installation_identity["managed_paths"],

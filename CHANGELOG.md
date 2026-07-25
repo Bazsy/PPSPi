@@ -5,6 +5,8 @@ All notable changes are documented here. PPSPi follows
 
 ## Unreleased
 
+## 0.2.0-rc.1 - 2026-07-25
+
 ### Added
 
 - stateful passive health monitoring with two-observation hysteresis,
@@ -38,6 +40,8 @@ All notable changes are documented here. PPSPi follows
 - GET/HEAD-only dashboard routing, closed response schema, read-only HTTP-side
   database access, security headers, peer-CIDR enforcement, rate/concurrency
   limits, and no command, raw-data, administrative, or external-request path.
+- redact complete Chrony selected-source identities and valid IPv4/IPv6 literals
+  from bounded diagnostic command output.
 
 ### Fixed
 
@@ -45,6 +49,12 @@ All notable changes are documented here. PPSPi follows
   renderer file through a package-owner-verified `dpkg-statoverride`, preventing
   first-boot and subsequent Netplan permission warnings from returning after
   package upgrades.
+- measure filesystem writability from PID 1's host mount namespace so the
+  health-check service's `ProtectSystem=strict` sandbox cannot create false
+  read-only root/boot alarms.
+- expose the documented `ppstime-maintenance` status command on the operator
+  path.
+- label dashboard graph axes with values/units and add visible series legends.
 
 ## 0.1.0 - 2026-07-22
 

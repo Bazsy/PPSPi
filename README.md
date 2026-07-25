@@ -169,8 +169,8 @@ Generate a support bundle with:
 sudo ppstime-diagnostics --output-dir /tmp
 ```
 
-The current `0.2.0-dev` branch adds `ppstime-backup`; it is not included in the
-published v0.1.0 image. On `0.2.0-dev`, create a portable mode-`0600` PPSPi
+The v0.2.0 prerelease adds `ppstime-backup`; it is not included in the
+published v0.1.0 image. On v0.2.0, create a portable mode-`0600` PPSPi
 configuration backup with:
 
 ```console
@@ -180,7 +180,7 @@ ppstime-backup export --output "$HOME/ppstime-backup.tar.gz"
 It excludes accounts, SSH keys, Wi-Fi credentials, and unrelated OS files.
 See [configuration backup and disaster recovery](docs/backup-restore.md).
 
-On `0.2.0-dev`, signed OS security updates run in a weekly maintenance window
+On the v0.2.0 prerelease, signed OS security updates run in a weekly maintenance window
 and reboot only when the OS requires it and package/RTC preflight passes. See
 [unattended OS maintenance](docs/maintenance.md).
 
@@ -195,9 +195,9 @@ bounded sanitized history, and has no administrative endpoints or external
 requests. See the [optional read-only dashboard](docs/dashboard.md) before
 enabling LAN access.
 
-`ppstime-health` and the passive stateful monitor are available on the current
-`0.2.0-dev` development branch; they are not included in the published v0.1.0
-image. On a `0.2.0-dev` installation, inspect confirmed appliance health and
+`ppstime-health` and the passive stateful monitor are available in the v0.2.0
+prerelease; they are not included in the published v0.1.0 image. On a v0.2.0
+installation, inspect confirmed appliance health and
 transition state with:
 
 ```console
@@ -307,6 +307,9 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - [v0.1.0 hardware report](docs/hardware-test-report-v0.1.0.md)
 - [v0.1.0 release readiness](docs/release-readiness-v0.1.0.md)
 - [v0.1.0 release notes](docs/release-notes-v0.1.0.md)
+- [v0.2.0-rc.1 hardware report](docs/hardware-test-report-v0.2.0-rc.1.md)
+- [v0.2.0-rc.1 release readiness](docs/release-readiness-v0.2.0-rc.1.md)
+- [v0.2.0-rc.1 release notes](docs/release-notes-v0.2.0-rc.1.md)
 - [Development](docs/development.md)
 - [Release process](docs/release-process.md)
 

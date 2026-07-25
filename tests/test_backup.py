@@ -15,6 +15,7 @@ from types import ModuleType
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CORE_PATH = PROJECT_ROOT / "files" / "ppstime"
 BACKUP_COMMAND = CORE_PATH / "ppstime-backup"
+PROJECT_VERSION = (PROJECT_ROOT / "VERSION").read_text(encoding="ascii").strip()
 sys.path.insert(0, str(CORE_PATH))
 
 from ppstime_core import config_to_env, load_config, parse_env_file
@@ -42,7 +43,7 @@ class BackupTests(unittest.TestCase):
         path.write_text(
             json.dumps(
                 {
-                    "project_version": "0.2.0-dev",
+                    "project_version": PROJECT_VERSION,
                     "git_commit": "1" * 40,
                     "raspberry_pi_os_release": "trixie",
                     "architecture": "arm64",
@@ -153,7 +154,7 @@ class BackupTests(unittest.TestCase):
             manifest = json.loads(process.stdout)
             self.assertEqual(manifest["profile"], config["PPSTIME_PROFILE"])
             self.assertEqual(manifest["hardware_model"], self.model)
-            self.assertEqual(manifest["project_version"], "0.2.0-dev")
+            self.assertEqual(manifest["project_version"], PROJECT_VERSION)
             self.assertEqual(manifest["git_commit"], "1" * 40)
             self.assertEqual(len(manifest["config_sha256"]), 64)
 

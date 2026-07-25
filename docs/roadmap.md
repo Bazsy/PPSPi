@@ -35,14 +35,14 @@ and leave running:
 - one-file published installation through the Imager manifest:
    [issue #66](https://github.com/Bazsy/PPSPi/issues/66);
 - unattended signed OS security updates and a bounded weekly required-reboot
-   window (implemented in `0.2.0-dev`):
+   window (implemented in the v0.2.0 prerelease):
    [issue #67](https://github.com/Bazsy/PPSPi/issues/67);
 - verified PPSPi application update and rollback:
    [issue #68](https://github.com/Bazsy/PPSPi/issues/68);
-- configuration export and disaster recovery (implemented in `0.2.0-dev`):
+- configuration export and disaster recovery (implemented in the v0.2.0 prerelease):
    [issue #69](https://github.com/Bazsy/PPSPi/issues/69);
 - host storage, temperature, throttling, and update health (implemented in
-   `0.2.0-dev`):
+   the v0.2.0 prerelease):
    [issue #77](https://github.com/Bazsy/PPSPi/issues/77);
 - optional read-only LAN dashboard with short history graphs:
    [issue #78](https://github.com/Bazsy/PPSPi/issues/78).
@@ -120,7 +120,7 @@ building:
 1. **Netdata**, the closest all-in-one local dashboard with automatic Raspberry
    Pi system graphs and history, using a small PPSPi collector;
 2. **node_exporter plus Prometheus/Grafana**, the mature advanced route that can
-   consume the `ppstime-health --prometheus` output available in `0.2.0-dev`,
+   consume the `ppstime-health --prometheus` output available in v0.2.0,
    preferably with Prometheus/Grafana on another host;
 3. a small PPSPi read-only dashboard if existing options prove too heavy or too
    difficult to secure.
