@@ -174,7 +174,7 @@ for command_name in ppstime-status ppstime-test ppstime-config ppstime-diagnosti
 done
 run install -d -m 0755 "$(rooted /usr/local/sbin)"
 for public_command in ppstime-status ppstime-test ppstime-config ppstime-diagnostics \
-    ppstime-backup ppstime-host-health ppstime-update; do
+    ppstime-backup ppstime-host-health ppstime-maintenance ppstime-update; do
     run ln -sfn "/usr/lib/ppstime/${public_command}" "$(rooted "/usr/local/sbin/${public_command}")"
 done
 run ln -sfnT "/usr/lib/ppstime/ppstime-health" "$(rooted /usr/local/sbin/ppstime-health)"
