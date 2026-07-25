@@ -140,6 +140,11 @@ The result is a mode-0600 archive named
 - dashboard state and bounded database metadata (size, row count, and
   oldest/latest timestamps), but no dashboard sample rows.
 
+Captured service status and bounded journal output redact complete Chrony
+selected-source identities and valid IPv4/IPv6 literals. This prevents source or
+client addresses from leaking indirectly through logs after the explicit raw
+Chrony address-listing commands have been excluded.
+
 It does not intentionally collect `/etc/shadow`, home directories, SSH files,
 wireless profiles, environment variables, arbitrary journal units, or full
 network configuration. Keys containing password, secret, token, private, Wi-Fi,

@@ -816,6 +816,38 @@ class HealthTests(unittest.TestCase):
                 {"state": "HEALTHY"},
             )
 
+    def test_diagnostics_command_output_redacts_network_identities(self) -> None:
+        module = load_diagnostics_module()
+        raw = (
+            "Jul 25 chronyd: Selected source 192.0.2.20 (pool.example.net)\n"
+            "client=10.20.30.40 peer=2001:db8::1234 loopback=127.0.0.1\n"
+            "version=3.25.1 timestamp=15:22:14\n"
+        )
+        sanitized = module.redact_command_output(raw)
+        for forbidden in (
+            "192.0.2.20",
+            "pool.example.net",
+            "10.20.30.40",
+            "2001:db8::1234",
+            "127.0.0.1",
+        ):
+            self.assertNotIn(forbidden, sanitized)
+        self.assertIn("Selected source REDACTED", sanitized)
+        self.assertIn("version=3.25.1", sanitized)
+        self.assertIn("timestamp=15:22:14", sanitized)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "command.txt"
+            module.run_command = lambda command, timeout: SimpleNamespace(
+                returncode=0,
+                stdout=raw,
+                stderr="failed peer 198.51.100.8\n",
+            )
+            module.write_command(output, ["example"])
+            captured = output.read_text(encoding="utf-8")
+        self.assertIn("$ example\nexit_code=0", captured)
+        self.assertNotIn("198.51.100.8", captured)
+
 
 if __name__ == "__main__":
     unittest.main()
