@@ -5,7 +5,8 @@ maintenance window. It uses the distribution-native `unattended-upgrades` tool
 and never reboots unconditionally. Separately enabled, exact-version PPSPi
 application updates can run in the same window after package audit.
 
-This feature is available in `0.2.0-dev`, not the published v0.1.0 image.
+This feature is available in the v0.2.0 prerelease, not the published v0.1.0
+image.
 
 ## Default policy
 

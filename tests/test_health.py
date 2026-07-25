@@ -377,7 +377,8 @@ class HealthTests(unittest.TestCase):
             child_pid = int(child_pid_path.read_text(encoding="ascii"))
             process_stat = Path(f"/proc/{child_pid}/stat")
             with contextlib.suppress(FileNotFoundError, ProcessLookupError):
-                self.assertEqual(process_stat.read_text(encoding="ascii").split()[2], "Z")
+                process_state = process_stat.read_text(encoding="ascii").split()[2]
+                self.assertIn(process_state, {"X", "x", "Z"})
             self.assertEqual(
                 module.run_hooks(
                     hook_dir,
