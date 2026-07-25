@@ -8,7 +8,7 @@ sudo ppstime-test
 sudo ppstime-diagnostics --output-dir /tmp
 ```
 
-On the v0.2.0 prerelease, also check the Raspberry Pi host separately:
+On v0.2.0 and later, also check the Raspberry Pi host separately:
 
 ```console
 ppstime-host-health
