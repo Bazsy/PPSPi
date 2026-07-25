@@ -10,11 +10,12 @@ kernel-timestamped pulse-per-second events, Chrony, and the HAT's hardware RTC
 while staying close to the standard Raspberry Pi OS appliance model.
 
 > [!IMPORTANT]
-> PPSPi is early-stage software. Version 0.1.0 is source-verified and
-> hardware-tested on the documented Raspberry Pi 4 and Uputronics Rev 6.4
-> target, including a 24-hour open-sky observation and public-image smoke boot.
-> Check 15 has an explicit deployment-scope waiver rather than a measured pass.
-> Do not use PPSPi as a sole production time source.
+> PPSPi is early-stage software. Version 0.2.0 passed the available acceptance
+> scope on the documented Raspberry Pi 4 and Uputronics Rev 6.4 target. A real
+> reboot-requiring OS update, production application update/rollback, direct-LAN
+> dashboard measurement, and public-image smoke remain explicitly deferred to
+> [issue #95](https://github.com/Bazsy/PPSPi/issues/95). Do not use PPSPi as a
+> sole production time source.
 
 ## Start here
 
@@ -32,7 +33,7 @@ while staying close to the standard Raspberry Pi OS appliance model.
 
 | Support level | Raspberry Pi | GNSS/PPS hardware | Status |
 | --- | --- | --- | --- |
-| Release-tested | Raspberry Pi 4 Model B Rev 1.5 | Uputronics GPS/RTC Expansion Board Rev 6.4 using the V6.0+ profile | Available in v0.1.0 |
+| Release-tested | Raspberry Pi 4 Model B Rev 1.5 | Uputronics GPS/RTC Expansion Board Rev 6.4 using the V6.0+ profile | Available in v0.2.0 |
 | Planned | Pi 3 B/B+, CM4, Pi 5 Model B | Exact products named in roadmap issues | Not yet supported; contributors needed |
 
 CI verifies that the Pi 4 model policy is accepted and that Pi 3, Pi 5, Pi 400,
@@ -169,8 +170,7 @@ Generate a support bundle with:
 sudo ppstime-diagnostics --output-dir /tmp
 ```
 
-The v0.2.0 prerelease adds `ppstime-backup`; it is not included in the
-published v0.1.0 image. On v0.2.0, create a portable mode-`0600` PPSPi
+Version 0.2.0 adds `ppstime-backup`. Create a portable mode-`0600` PPSPi
 configuration backup with:
 
 ```console
@@ -180,8 +180,8 @@ ppstime-backup export --output "$HOME/ppstime-backup.tar.gz"
 It excludes accounts, SSH keys, Wi-Fi credentials, and unrelated OS files.
 See [configuration backup and disaster recovery](docs/backup-restore.md).
 
-On the v0.2.0 prerelease, signed OS security updates run in a weekly maintenance window
-and reboot only when the OS requires it and package/RTC preflight passes. See
+On v0.2.0, signed OS security updates run in a weekly maintenance window and
+reboot only when the OS requires it and package/RTC preflight passes. See
 [unattended OS maintenance](docs/maintenance.md).
 
 Verified PPSPi application updates are separately opt-in, require an exact
@@ -189,16 +189,15 @@ same-compatibility-series version and a configured minisign public key, and
 retain a local transactional rollback. See
 [verified application updates and rollback](docs/application-updates.md).
 
-The current development branch also includes a polished, dependency-free,
-read-only local dashboard. It is disabled and loopback-only by default, stores
+Version 0.2.0 also includes a polished, dependency-free, read-only local
+dashboard. It is disabled and loopback-only by default, stores
 bounded sanitized history, and has no administrative endpoints or external
 requests. See the [optional read-only dashboard](docs/dashboard.md) before
 enabling LAN access.
 
-`ppstime-health` and the passive stateful monitor are available in the v0.2.0
-prerelease; they are not included in the published v0.1.0 image. On a v0.2.0
-installation, inspect confirmed appliance health and
-transition state with:
+`ppstime-health` and the passive stateful monitor are available in v0.2.0. On a
+v0.2.0 installation, inspect confirmed appliance health and transition state
+with:
 
 ```console
 ppstime-health
@@ -307,9 +306,9 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - [v0.1.0 hardware report](docs/hardware-test-report-v0.1.0.md)
 - [v0.1.0 release readiness](docs/release-readiness-v0.1.0.md)
 - [v0.1.0 release notes](docs/release-notes-v0.1.0.md)
-- [v0.2.0-rc.1 hardware report](docs/hardware-test-report-v0.2.0-rc.1.md)
-- [v0.2.0-rc.1 release readiness](docs/release-readiness-v0.2.0-rc.1.md)
-- [v0.2.0-rc.1 release notes](docs/release-notes-v0.2.0-rc.1.md)
+- [v0.2.0 hardware report](docs/hardware-test-report-v0.2.0.md)
+- [v0.2.0 release readiness](docs/release-readiness-v0.2.0.md)
+- [v0.2.0 release notes](docs/release-notes-v0.2.0.md)
 - [Development](docs/development.md)
 - [Release process](docs/release-process.md)
 

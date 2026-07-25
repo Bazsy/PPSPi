@@ -10,7 +10,7 @@ release gates pass.
 
 ## Available now
 
-Version 0.1.0 is release-tested on:
+Version 0.2.0 retains the v0.1.0 release-tested hardware target:
 
 - Raspberry Pi 4 Model B Rev 1.5;
 - Uputronics GPS/RTC Expansion Board Rev 6.4 (V6.0+ profile);
@@ -18,14 +18,17 @@ Version 0.1.0 is release-tested on:
 - an outdoor active GNSS antenna and wired Ethernet.
 
 The release includes a Raspberry Pi Imager manifest, strict installer,
-GPSD/Chrony/PPS integration, RTC support, diagnostics, controlled fallback, and
-explicit release gates. See the
-[v0.1.0 hardware report](hardware-test-report-v0.1.0.md).
+GPSD/Chrony/PPS integration, RTC support, diagnostics, controlled fallback,
+unattended maintenance, verified application updates, configuration recovery,
+host health, an optional dashboard, and explicit release gates. See the
+[v0.2.0 hardware report](hardware-test-report-v0.2.0.md). Production-only and
+post-publication acceptance deferred from v0.2.0 is tracked in
+[issue #95](https://github.com/Bazsy/PPSPi/issues/95).
 
 ## v0.2.x: unattended operation and easier setup
 
-The next milestone makes the existing appliance easier to install, understand,
-and leave running:
+This milestone made the existing appliance easier to install, understand, and
+leave running:
 
 - beginner-facing roadmap and quick start:
    [issue #63](https://github.com/Bazsy/PPSPi/issues/63) and
@@ -35,14 +38,15 @@ and leave running:
 - one-file published installation through the Imager manifest:
    [issue #66](https://github.com/Bazsy/PPSPi/issues/66);
 - unattended signed OS security updates and a bounded weekly required-reboot
-   window (implemented in the v0.2.0 prerelease):
+   window (implemented in v0.2.0; production reboot acceptance continues in
+   issue #95):
    [issue #67](https://github.com/Bazsy/PPSPi/issues/67);
 - verified PPSPi application update and rollback:
    [issue #68](https://github.com/Bazsy/PPSPi/issues/68);
-- configuration export and disaster recovery (implemented in the v0.2.0 prerelease):
+- configuration export and disaster recovery (implemented in v0.2.0):
    [issue #69](https://github.com/Bazsy/PPSPi/issues/69);
 - host storage, temperature, throttling, and update health (implemented in
-   the v0.2.0 prerelease):
+   v0.2.0):
    [issue #77](https://github.com/Bazsy/PPSPi/issues/77);
 - optional read-only LAN dashboard with short history graphs:
    [issue #78](https://github.com/Bazsy/PPSPi/issues/78).

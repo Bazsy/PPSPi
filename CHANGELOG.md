@@ -5,7 +5,7 @@ All notable changes are documented here. PPSPi follows
 
 ## Unreleased
 
-## 0.2.0-rc.1 - 2026-07-25
+## 0.2.0 - 2026-07-25
 
 ### Added
 

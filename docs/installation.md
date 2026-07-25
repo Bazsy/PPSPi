@@ -122,8 +122,8 @@ See [configuration backup and disaster recovery](backup-restore.md). The archive
 contains PPSPi configuration only; recreate account, SSH, and Wi-Fi choices
 through Imager or an operator-managed encrypted system backup.
 
-The v0.2.0 prerelease also enables a weekly signed security-maintenance window. Review and
-adjust it before unattended deployment; see
+Version 0.2.0 also enables a weekly signed security-maintenance window. Review
+and adjust it before unattended deployment; see
 [unattended OS maintenance](maintenance.md).
 
 The installer detects `/boot/firmware/config.txt` and `cmdline.txt` first, then
@@ -165,13 +165,11 @@ events, and `#* PPS` in Chrony. A large visible-satellite count alone does not
 prove sufficient signal or geometry. `ppstime-test` intentionally returns
 non-zero while essential timing components are unavailable.
 
-When installing the v0.2.0 prerelease, you can also run
-`ppstime-health` and `ppstime-host-health`. These commands are not included in
-the published v0.1.0 image.
+On v0.2.0, you can also run `ppstime-health` and `ppstime-host-health`.
 
 The passive health monitor starts after five minutes and needs two matching
 observations to establish or change state. `UNKNOWN` immediately after boot is
-therefore expected on the v0.2.0 prerelease. See
+therefore expected on v0.2.0. See
 [health monitoring and operational checks](monitoring.md).
 
 Optionally narrow NTP access to the actual LAN when the broader private-range

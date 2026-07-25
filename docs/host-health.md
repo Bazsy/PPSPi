@@ -4,8 +4,7 @@ PPSPi monitors the Raspberry Pi host separately from GPS/PPS timing. A disk,
 temperature, power, or update warning does not relabel healthy timing as
 unsynchronized, and a GNSS outage does not hide a storage problem.
 
-This feature is available in the v0.2.0 prerelease and is not included in the
-published v0.1.0 image.
+This feature is available in v0.2.0 and later.
 
 ## Inspect host state
 

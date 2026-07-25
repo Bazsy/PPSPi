@@ -4,8 +4,7 @@
 It is intended for SD-card replacement, migration to a compatible Pi, and
 rollback before changing PPSPi.
 
-This command is available in the v0.2.0 prerelease and is not included in the
-published v0.1.0 image.
+This command is available in v0.2.0 and later.
 
 ## What is included
 
