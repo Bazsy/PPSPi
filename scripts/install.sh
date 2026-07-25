@@ -324,7 +324,8 @@ if [[ "${target_root}" == "/" && "${dry_run}" == "false" ]]; then
         /usr/lib/ppstime/ppstime-dashboard preflight
         systemctl enable --now ppstime-dashboard.service ppstime-dashboard-sample.timer
     else
-        systemctl disable --now ppstime-dashboard.service ppstime-dashboard-sample.timer || true
+        systemctl disable ppstime-dashboard.service ppstime-dashboard-sample.timer || true
+        systemctl stop ppstime-dashboard.service ppstime-dashboard-sample.timer || true
     fi
     if grep -qx 'RTC_ENABLED=true' /etc/ppstime/ppstime.env &&
         systemctl list-unit-files fake-hwclock.service > /dev/null 2>&1; then
