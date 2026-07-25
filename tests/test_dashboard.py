@@ -5,6 +5,7 @@ import importlib.machinery
 import json
 import socket
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import threading
@@ -357,6 +358,37 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("renderLatest(null);", javascript)
         self.assertIn("const flush = () =>", javascript)
         self.assertIn("if (!Number.isFinite(number))", javascript)
+        self.assertIn('byId("chart-legend")', javascript)
+        self.assertIn('[[30, "On"], [210, "Off"]]', javascript)
+        self.assertIn("if (!values.length)", javascript)
+
+    def test_chart_scales_distinguish_numeric_ranges_and_units(self) -> None:
+        javascript = PROJECT_ROOT / "files" / "dashboard" / "dashboard.js"
+        script = f"""
+const chart = require({json.dumps(str(javascript))});
+const result = {{
+    low: chart.buildScale([2, 3], {{includeZero: true, integer: true}}),
+    high: chart.buildScale([10, 15], {{includeZero: true, integer: true}}),
+    constant: chart.buildScale([55, 55], {{}}),
+    precision: chart.formatAxisTick(12.5, {{unit: 'µs'}}, 0),
+    health: chart.formatAxisTick(3, {{labels: ['Error', 'Unsync', 'Fallback', 'Healthy']}}, 3),
+}};
+console.log(JSON.stringify(result));
+"""
+        result = subprocess.run(
+            ["node", "--eval", script],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["low"]["ticks"], [0, 1, 2, 3])
+        self.assertEqual(payload["high"]["ticks"], [0, 5, 10, 15])
+        self.assertLess(payload["constant"]["minimum"], 55)
+        self.assertGreater(payload["constant"]["maximum"], 55)
+        self.assertEqual(payload["precision"], "12.5 µs")
+        self.assertEqual(payload["health"], "Healthy")
 
     def test_raw_socket_request_and_header_bounds_apply_before_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
