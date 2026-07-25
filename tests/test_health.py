@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import copy
 import importlib.machinery
 import json
@@ -373,7 +374,7 @@ class HealthTests(unittest.TestCase):
             )
             child_pid = int(child_pid_path.read_text(encoding="ascii"))
             process_stat = Path(f"/proc/{child_pid}/stat")
-            if process_stat.exists():
+            with contextlib.suppress(FileNotFoundError):
                 self.assertEqual(process_stat.read_text(encoding="ascii").split()[2], "Z")
             self.assertEqual(
                 module.run_hooks(

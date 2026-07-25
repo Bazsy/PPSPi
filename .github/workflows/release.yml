@@ -31,10 +31,11 @@ jobs:
           TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
           version="${TAG_NAME#v}"
-          [[ "${TAG_NAME}" == v* ]] && python3 scripts/validate-semver.py "${version}" || {
+          if [[ "${TAG_NAME}" != v* ]] || \
+            ! python3 scripts/validate-semver.py "${version}"; then
             echo "Release tag must be v<semantic-version>: ${TAG_NAME}" >&2
             exit 1
-          }
+          fi
           committed_version="$(tr -d '[:space:]' < VERSION)"
           [[ "${version}" == "${committed_version}" ]] || {
             echo "Tag ${version} does not match VERSION (${committed_version})" >&2
