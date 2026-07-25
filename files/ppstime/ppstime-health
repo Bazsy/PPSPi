@@ -138,16 +138,39 @@ def normalize_status(payload: Any) -> dict[str, Any]:
     selected_source_kind = (
         selected_source if selected_source in {"GPS", "PPS"} else "OTHER"
     ) if selected_source else None
+    satellites_used = gps.get("satellites_used")
+    if satellites_used is not None and (
+        type(satellites_used) is not int or not 0 <= satellites_used <= 128
+    ):
+        raise HealthError("status.gps.satellites_used must be an integer from 0 to 128")
+    timing_scalars: dict[str, float | None] = {}
+    for key, minimum, maximum in (
+        ("system_offset_seconds", -10.0, 10.0),
+        ("root_dispersion_seconds", 0.0, 1000.0),
+    ):
+        value = chrony.get(key)
+        if value is None:
+            timing_scalars[key] = None
+            continue
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError) as exc:
+            raise HealthError(f"status.chrony.{key} must be numeric or null") from exc
+        if not math.isfinite(parsed) or not minimum <= parsed <= maximum:
+            raise HealthError(f"status.chrony.{key} is outside its allowed range")
+        timing_scalars[key] = parsed
     return {
         "chrony_state": require_string(chrony, "state", "status.chrony"),
         "selected_source": selected_source_kind,
         "stratum": stratum_value,
         "gps_fix": require_string(gps, "fix", "status.gps"),
+        "satellites_used": satellites_used,
         "gps_serial": require_string(gps, "serial", "status.gps"),
         "gps_service": require_string(gps, "service", "status.gps"),
         "pps_exists": pps_exists,
         "pps_pulses": require_string(pps, "pulses", "status.pps"),
         "rtc_status": require_string(rtc, "status", "status.rtc"),
+        **timing_scalars,
     }
 
 

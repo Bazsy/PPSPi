@@ -45,6 +45,10 @@ ALLOWED_EXACT = frozenset(
         "usr/lib/ppstime/ppstime_update.py",
         "usr/share/ppstime/config/default.env",
         "usr/share/ppstime/application-update.pub",
+        "usr/share/ppstime/dashboard/index.html",
+        "usr/share/ppstime/dashboard/dashboard.css",
+        "usr/share/ppstime/dashboard/dashboard.js",
+        "usr/share/ppstime/dashboard/ppspi.svg",
         "etc/systemd/system/gpsd.service.d/ppstime.conf",
         "etc/systemd/system/chrony.service.d/ppstime.conf",
         "etc/udev/rules.d/80-ppstime.rules",
@@ -434,6 +438,9 @@ def source_payload_files(source_root: Path) -> list[tuple[Path, str, int]]:
         files.append(
             (source, f"usr/share/ppstime/config/profiles/{source.name}", 0o644)
         )
+    for source in sorted((source_root / "files" / "dashboard").iterdir()):
+        if source.is_file():
+            files.append((source, f"usr/share/ppstime/dashboard/{source.name}", 0o644))
     for source in sorted((source_root / "files" / "systemd").rglob("*")):
         if source.is_file():
             relative = source.relative_to(source_root / "files" / "systemd").as_posix()

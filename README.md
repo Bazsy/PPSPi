@@ -189,6 +189,12 @@ same-compatibility-series version and a configured minisign public key, and
 retain a local transactional rollback. See
 [verified application updates and rollback](docs/application-updates.md).
 
+The current development branch also includes a polished, dependency-free,
+read-only local dashboard. It is disabled and loopback-only by default, stores
+bounded sanitized history, and has no administrative endpoints or external
+requests. See the [optional read-only dashboard](docs/dashboard.md) before
+enabling LAN access.
+
 `ppstime-health` and the passive stateful monitor are available on the current
 `0.2.0-dev` development branch; they are not included in the published v0.1.0
 image. On a `0.2.0-dev` installation, inspect confirmed appliance health and
@@ -252,7 +258,7 @@ See the [release process](docs/release-process.md) for the exact gates.
 - SSH disabled until the owner enables it through Imager;
 - password SSH accepted for a trusted private LAN, provided the password is
   strong and unique and TCP port 22 is not exposed publicly;
-- no web or administrative API;
+- optional web dashboard disabled by default, with no administrative API;
 - NTP allowed by default from all RFC 1918 IPv4 and RFC 4193 IPv6 ULA ranges;
 - public, loopback, link-local, CGNAT, multicast, and test ranges rejected;
 - generated configuration uses least-privilege file modes;
@@ -292,6 +298,7 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - [Diagnostics](docs/diagnostics.md)
 - [Health monitoring and operational checks](docs/monitoring.md)
 - [Host health monitoring](docs/host-health.md)
+- [Optional read-only dashboard](docs/dashboard.md)
 - [Configuration backup and disaster recovery](docs/backup-restore.md)
 - [Unattended OS maintenance](docs/maintenance.md)
 - [Verified application updates](docs/application-updates.md)

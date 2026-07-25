@@ -15,6 +15,7 @@ from ppstime_core import (
     ConfigError,
     atomic_write,
     config_to_env,
+    dashboard_enabled,
     maintenance_enabled,
     parse_env_file,
     validate_config,
@@ -112,6 +113,57 @@ def main() -> int:
         else:
             subprocess.run(
                 ["systemctl", "disable", "--now", "ppstime-maintenance.timer"],
+                check=True,
+            )
+        dashboard_units = [
+            "ppstime-dashboard.service",
+            "ppstime-dashboard-sample.timer",
+        ]
+        subprocess.run(
+            ["install", "-d", "-m", "0755", "/var/lib/ppstime-dashboard"],
+            check=True,
+        )
+        if dashboard_enabled(config):
+            preflight = subprocess.run(
+                ["/usr/lib/ppstime/ppstime-dashboard", "preflight"],
+                check=False,
+            )
+            if preflight.returncode != 0:
+                raise ConfigError("dashboard bind preflight failed")
+            previous = {
+                unit: (
+                    subprocess.run(
+                        ["systemctl", "is-enabled", "--quiet", unit],
+                        check=False,
+                    ).returncode
+                    == 0,
+                    subprocess.run(
+                        ["systemctl", "is-active", "--quiet", unit],
+                        check=False,
+                    ).returncode
+                    == 0,
+                )
+                for unit in dashboard_units
+            }
+            try:
+                for unit in dashboard_units:
+                    subprocess.run(
+                        ["systemctl", "enable", "--now", unit], check=True
+                    )
+            except subprocess.CalledProcessError:
+                for unit, (enabled, active) in previous.items():
+                    subprocess.run(
+                        ["systemctl", "enable" if enabled else "disable", unit],
+                        check=False,
+                    )
+                    subprocess.run(
+                        ["systemctl", "start" if active else "stop", unit],
+                        check=False,
+                    )
+                raise
+        else:
+            subprocess.run(
+                ["systemctl", "disable", "--now", *dashboard_units],
                 check=True,
             )
         print("PPSPi configuration applied")

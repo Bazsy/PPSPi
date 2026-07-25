@@ -168,6 +168,73 @@ class ConfigTests(unittest.TestCase):
                     self.assertEqual(len(timer_calls), 1)
                     self.assertEqual(timer_calls[0][1], expected_operation)
 
+    def test_config_apply_reconciles_both_dashboard_units(self) -> None:
+        for enabled in ("false", "true"):
+            with self.subTest(enabled=enabled), tempfile.TemporaryDirectory() as temporary:
+                module = self.load_config_command()
+                config_path = Path(temporary) / "ppstime.env"
+                config_path.write_text(
+                    config_to_env(dict(self.config, DASHBOARD_ENABLED=enabled)),
+                    encoding="utf-8",
+                )
+                calls: list[list[str]] = []
+
+                def run(
+                    command: list[str],
+                    *_run_args: object,
+                    call_log: list[list[str]] = calls,
+                    **_kwargs: object,
+                ) -> subprocess.CompletedProcess[str]:
+                    call_log.append(command)
+                    return subprocess.CompletedProcess(command, 0, "", "")
+
+                with patch.object(
+                    sys,
+                    "argv",
+                    ["ppstime-config", "--config", str(config_path), "apply"],
+                ), patch.object(module.os, "geteuid", return_value=0), patch.object(
+                    module.subprocess, "run", side_effect=run
+                ):
+                    self.assertEqual(module.main(), 0)
+                dashboard_calls = [
+                    command
+                    for command in calls
+                    if command[:3]
+                    in (
+                        ["systemctl", "enable", "--now"],
+                        ["systemctl", "disable", "--now"],
+                    )
+                    and any(unit in command for unit in (
+                        "ppstime-dashboard.service",
+                        "ppstime-dashboard-sample.timer",
+                    ))
+                ]
+                if enabled == "true":
+                    self.assertEqual(
+                        dashboard_calls,
+                        [
+                            ["systemctl", "enable", "--now", unit]
+                            for unit in (
+                                "ppstime-dashboard.service",
+                                "ppstime-dashboard-sample.timer",
+                            )
+                        ],
+                    )
+                    self.assertIn(
+                        ["/usr/lib/ppstime/ppstime-dashboard", "preflight"], calls
+                    )
+                else:
+                    self.assertEqual(
+                        dashboard_calls,
+                        [[
+                            "systemctl",
+                            "disable",
+                            "--now",
+                            "ppstime-dashboard.service",
+                            "ppstime-dashboard-sample.timer",
+                        ]],
+                    )
+
     def test_active_configuration_has_no_secret_keys(self) -> None:
         sensitive = ("PASSWORD", "SECRET", "TOKEN", "PRIVATE", "WIFI", "SSID", "KEY")
         self.assertFalse(

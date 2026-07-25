@@ -1,0 +1,28 @@
+[
+  {
+    "name": "network-fallback",
+    "timing_state": "NETWORK_FALLBACK",
+    "selected_source": "OTHER",
+    "stratum": 2,
+    "pps_pulses": "INACTIVE"
+  },
+  {
+    "name": "timing-collector-unavailable",
+    "timing_state": "HEALTHY_PPS",
+    "timing_collection_available": false
+  },
+  {
+    "name": "host-warning",
+    "host_state": "WARNING",
+    "temperature_celsius": 76.2,
+    "throttled_flags": 1
+  },
+  {
+    "name": "hardware-error",
+    "timing_state": "HARDWARE_ERROR",
+    "gps_fix": "NO FIX",
+    "satellites_used": 0,
+    "pps_pulses": "INACTIVE",
+    "rtc_available": false
+  }
+]

@@ -1,0 +1,76 @@
+{
+  "host_collection_available": true,
+  "host_pending_count": 0,
+  "host_pending_state": null,
+  "host_state": "HEALTHY",
+  "host_state_duration_seconds": 3600,
+  "host_state_since": "2026-07-25T10:00:00Z",
+  "host_state_since_monotonic_seconds": 1000.0,
+  "last_checked_at": "2026-07-25T11:58:00Z",
+  "last_host_attempt_at": "2026-07-25T11:58:00Z",
+  "last_host_observation": {
+    "raw_state": "HEALTHY",
+    "reasons": [],
+    "summary": {
+      "filesystems": {
+        "boot": {
+          "available": true,
+          "available_bytes": 536870912,
+          "available_percent": 63.5,
+          "inode_available_percent": 91.2,
+          "read_only": false
+        },
+        "root": {
+          "available": true,
+          "available_bytes": 8589934592,
+          "available_percent": 42.25,
+          "inode_available_percent": 88.0,
+          "read_only": false
+        }
+      },
+      "root_filesystem_errors": 0,
+      "temperature_celsius": 48.75,
+      "throttling": {
+        "available": true,
+        "flags": 0
+      },
+      "updates": {
+        "error": null,
+        "reboot_required": false,
+        "status": "SUCCESS",
+        "success_age_seconds": 7200
+      }
+    }
+  },
+  "last_host_success_at": "2026-07-25T11:58:00Z",
+  "last_host_transition": null,
+  "last_observation": {
+    "raw_state": "HEALTHY_PPS",
+    "reasons": [],
+    "summary": {
+      "chrony_state": "SYNCHRONIZED",
+      "gps_fix": "3D",
+      "satellites_used": 15,
+      "gps_serial": "OK",
+      "gps_service": "ACTIVE",
+      "pps_exists": true,
+      "pps_pulses": "ACTIVE",
+      "rtc_status": "OK",
+      "selected_source": "PPS",
+      "stratum": 1,
+      "system_offset_seconds": 0.000000007,
+      "root_dispersion_seconds": 0.000560501
+    }
+  },
+  "last_timing_attempt_at": "2026-07-25T11:58:00Z",
+  "last_timing_success_at": "2026-07-25T11:58:00Z",
+  "last_transition": null,
+  "pending_count": 0,
+  "pending_state": null,
+  "schema_version": 3,
+  "state": "HEALTHY_PPS",
+  "state_duration_seconds": 3600,
+  "state_since": "2026-07-25T10:00:00Z",
+  "state_since_monotonic_seconds": 1000.0,
+  "timing_collection_available": true
+}

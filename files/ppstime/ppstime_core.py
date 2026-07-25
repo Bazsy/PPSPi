@@ -65,6 +65,11 @@ CONFIG_KEYS = frozenset(
         "OS_REBOOT_ENABLED",
         "APP_UPDATES_ENABLED",
         "APP_UPDATE_VERSION",
+        "DASHBOARD_ENABLED",
+        "DASHBOARD_BIND",
+        "DASHBOARD_PORT",
+        "DASHBOARD_ALLOWED_CIDRS",
+        "DASHBOARD_RETENTION_HOURS",
         "SSH_ENABLED",
         "DEFAULT_HOSTNAME",
         "SUPPORTED_MODEL_PATTERN",
@@ -92,7 +97,18 @@ OS_MAINTENANCE_DEFAULTS = {
     "APP_UPDATES_ENABLED": "false",
     "APP_UPDATE_VERSION": "",
 }
-MIGRATABLE_CONFIG_DEFAULTS = {**HOST_THRESHOLD_DEFAULTS, **OS_MAINTENANCE_DEFAULTS}
+DASHBOARD_DEFAULTS = {
+    "DASHBOARD_ENABLED": "false",
+    "DASHBOARD_BIND": "127.0.0.1",
+    "DASHBOARD_PORT": "8080",
+    "DASHBOARD_ALLOWED_CIDRS": "127.0.0.1/32",
+    "DASHBOARD_RETENTION_HOURS": "168",
+}
+MIGRATABLE_CONFIG_DEFAULTS = {
+    **HOST_THRESHOLD_DEFAULTS,
+    **OS_MAINTENANCE_DEFAULTS,
+    **DASHBOARD_DEFAULTS,
+}
 
 BOOLEAN_KEYS = frozenset(
     {
@@ -102,6 +118,7 @@ BOOLEAN_KEYS = frozenset(
         "OS_UPDATES_ENABLED",
         "OS_REBOOT_ENABLED",
         "APP_UPDATES_ENABLED",
+        "DASHBOARD_ENABLED",
         "SSH_ENABLED",
     }
 )
@@ -118,6 +135,10 @@ PRIVATE_LAN_NETWORKS = (
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
     ipaddress.ip_network("fc00::/7"),
+)
+DASHBOARD_LOCAL_NETWORKS = PRIVATE_LAN_NETWORKS + (
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
 )
 HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*"
@@ -377,19 +398,66 @@ def validate_config(config: Mapping[str, str]) -> None:
             "APP_UPDATE_VERSION must be set when APP_UPDATES_ENABLED is true"
         )
     try:
+        dashboard_bind = ipaddress.ip_address(config["DASHBOARD_BIND"])
+    except ValueError as exc:
+        raise ConfigError("DASHBOARD_BIND must be a literal IP address") from exc
+    if not any(
+        dashboard_bind.version == network.version and dashboard_bind in network
+        for network in DASHBOARD_LOCAL_NETWORKS
+    ):
+        raise ConfigError("DASHBOARD_BIND must be a loopback or private LAN address")
+    try:
+        dashboard_port = int(config["DASHBOARD_PORT"])
+    except ValueError as exc:
+        raise ConfigError("DASHBOARD_PORT must be an integer") from exc
+    if not 1024 <= dashboard_port <= 65535:
+        raise ConfigError("DASHBOARD_PORT must be between 1024 and 65535")
+    dashboard_cidrs = split_cidrs(
+        config["DASHBOARD_ALLOWED_CIDRS"], key="DASHBOARD_ALLOWED_CIDRS"
+    )
+    if not dashboard_cidrs:
+        raise ConfigError("DASHBOARD_ALLOWED_CIDRS must contain at least one CIDR")
+    dashboard_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for cidr in dashboard_cidrs:
+        try:
+            network = ipaddress.ip_network(cidr, strict=True)
+        except ValueError as exc:
+            raise ConfigError(
+                f"DASHBOARD_ALLOWED_CIDRS contains invalid CIDR {cidr!r}: {exc}"
+            ) from exc
+        if not any(
+            network.version == local.version and network.subnet_of(local)
+            for local in DASHBOARD_LOCAL_NETWORKS
+        ):
+            raise ConfigError(
+                f"DASHBOARD_ALLOWED_CIDRS must contain only loopback or private LAN CIDRs: {cidr!r}"
+            )
+        dashboard_networks.append(network)
+    if not any(
+        dashboard_bind.version == network.version and dashboard_bind in network
+        for network in dashboard_networks
+    ):
+        raise ConfigError("DASHBOARD_BIND must be covered by DASHBOARD_ALLOWED_CIDRS")
+    try:
+        dashboard_retention = int(config["DASHBOARD_RETENTION_HOURS"])
+    except ValueError as exc:
+        raise ConfigError("DASHBOARD_RETENTION_HOURS must be an integer") from exc
+    if not 1 <= dashboard_retention <= 720:
+        raise ConfigError("DASHBOARD_RETENTION_HOURS must be between 1 and 720")
+    try:
         re.compile(config["SUPPORTED_MODEL_PATTERN"])
     except re.error as exc:
         raise ConfigError(f"SUPPORTED_MODEL_PATTERN is invalid: {exc}") from exc
 
 
-def split_cidrs(value: str) -> list[str]:
+def split_cidrs(value: str, *, key: str = "NTP_ALLOW") -> list[str]:
     """Split a comma-separated CIDR list while rejecting empty members."""
 
     if not value.strip():
         return []
     parts = [part.strip() for part in value.split(",")]
     if any(not part for part in parts):
-        raise ConfigError("NTP_ALLOW contains an empty CIDR")
+        raise ConfigError(f"{key} contains an empty CIDR")
     return parts
 
 
@@ -413,6 +481,12 @@ def maintenance_enabled(config: Mapping[str, str]) -> bool:
         config["OS_UPDATES_ENABLED"] == "true"
         or config["APP_UPDATES_ENABLED"] == "true"
     )
+
+
+def dashboard_enabled(config: Mapping[str, str]) -> bool:
+    """Return whether the local read-only dashboard is explicitly enabled."""
+
+    return config["DASHBOARD_ENABLED"] == "true"
 
 
 def config_to_env(config: Mapping[str, str]) -> str:

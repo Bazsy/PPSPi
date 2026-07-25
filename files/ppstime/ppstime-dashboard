@@ -1,0 +1,1104 @@
+#!/usr/bin/env python3
+"""Sample sanitized PPSPi health or serve the optional read-only dashboard."""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import http.client
+import ipaddress
+import json
+import math
+import os
+import re
+import socket
+import sqlite3
+import stat
+import subprocess
+import sys
+import threading
+import time
+from collections.abc import Mapping
+from datetime import datetime, timezone
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, quote, urlsplit
+
+from ppstime_core import ConfigError, parse_env_file, split_cidrs, validate_config
+
+SCHEMA_VERSION = 1
+HEALTH_SCHEMA_VERSION = 3
+DEFAULT_CONFIG = Path("/etc/ppstime/ppstime.env")
+DEFAULT_DATABASE = Path("/var/lib/ppstime-dashboard/dashboard.sqlite3")
+DEFAULT_ASSET_ROOT = Path("/usr/share/ppstime/dashboard")
+DEFAULT_HEALTH_COMMAND = Path("/usr/lib/ppstime/ppstime-health")
+MAX_HEALTH_BYTES = 256 * 1024
+MAX_DATABASE_BYTES = 8 * 1024 * 1024
+DATABASE_PAGE_SIZE = 4096
+DATABASE_MAX_PAGES = MAX_DATABASE_BYTES // DATABASE_PAGE_SIZE
+DATABASE_APPLICATION_ID = 0x50505344
+DATABASE_USER_VERSION = 1
+MAX_STORED_ROWS = 720 * 30 + 2
+MAX_ASSET_BYTES = 256 * 1024
+MAX_RESPONSE_BYTES = 512 * 1024
+MAX_REQUEST_TARGET = 2048
+MAX_HEADER_BYTES = 8192
+MAX_HEADER_COUNT = 32
+MAX_HISTORY_POINTS = 360
+MAX_CONCURRENT_REQUESTS = 8
+RATE_BURST = 20.0
+RATE_PER_SECOND = 0.5
+RATE_ENTRY_LIMIT = 1024
+RANGE_HOURS = frozenset({1, 6, 24, 168, 720})
+TIMING_STATES = frozenset(
+    {"UNKNOWN", "HEALTHY_PPS", "NETWORK_FALLBACK", "UNSYNCHRONIZED", "HARDWARE_ERROR"}
+)
+HOST_STATES = frozenset({"UNKNOWN", "HEALTHY", "WARNING", "CRITICAL"})
+ASSETS = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/dashboard.css": ("dashboard.css", "text/css; charset=utf-8"),
+    "/dashboard.js": ("dashboard.js", "text/javascript; charset=utf-8"),
+    "/ppspi.svg": ("ppspi.svg", "image/svg+xml"),
+}
+HEALTH_KEYS = frozenset(
+    {
+        "schema_version",
+        "state",
+        "state_since",
+        "state_since_monotonic_seconds",
+        "pending_state",
+        "pending_count",
+        "last_checked_at",
+        "last_observation",
+        "last_transition",
+        "host_state",
+        "host_state_since",
+        "host_state_since_monotonic_seconds",
+        "host_pending_state",
+        "host_pending_count",
+        "last_host_observation",
+        "last_host_transition",
+        "last_timing_attempt_at",
+        "last_timing_success_at",
+        "timing_collection_available",
+        "last_host_attempt_at",
+        "last_host_success_at",
+        "host_collection_available",
+        "state_duration_seconds",
+        "host_state_duration_seconds",
+    }
+)
+TIMING_SUMMARY_KEYS = frozenset(
+    {
+        "chrony_state",
+        "selected_source",
+        "stratum",
+        "gps_fix",
+        "satellites_used",
+        "gps_serial",
+        "gps_service",
+        "pps_exists",
+        "pps_pulses",
+        "rtc_status",
+        "system_offset_seconds",
+        "root_dispersion_seconds",
+    }
+)
+HOST_SUMMARY_KEYS = frozenset(
+    {"filesystems", "temperature_celsius", "throttling", "root_filesystem_errors", "updates"}
+)
+SAMPLE_KEYS = (
+    "sampled_at",
+    "sampled_at_epoch",
+    "timing_state",
+    "host_state",
+    "timing_collection_available",
+    "host_collection_available",
+    "timing_transition",
+    "host_transition",
+    "gps_fix",
+    "satellites_used",
+    "selected_source",
+    "stratum",
+    "system_offset_seconds",
+    "root_dispersion_seconds",
+    "pps_pulses",
+    "rtc_available",
+    "root_available_percent",
+    "boot_available_percent",
+    "temperature_celsius",
+    "throttled_flags",
+    "update_status",
+    "reboot_required",
+)
+
+
+class DashboardError(ValueError):
+    """Raised when dashboard input or persistent state is unsafe."""
+
+
+def require_mapping(value: Any, name: str, keys: frozenset[str] | None = None) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise DashboardError(f"{name} must be an object")
+    if keys is not None and set(value) != keys:
+        raise DashboardError(f"{name} keys do not match the dashboard schema")
+    return value
+
+
+def optional_mapping(value: Any, name: str, keys: frozenset[str]) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    observation = require_mapping(value, name)
+    if set(observation) != {"raw_state", "reasons", "summary"}:
+        raise DashboardError(f"{name} keys do not match the health schema")
+    return require_mapping(observation["summary"], f"{name}.summary", keys)
+
+
+def bounded_number(
+    value: Any,
+    name: str,
+    minimum: float,
+    maximum: float,
+    *,
+    integer: bool = False,
+) -> int | float | None:
+    if value is None:
+        return None
+    expected = int if integer else (int, float)
+    if type(value) not in (expected if isinstance(expected, tuple) else (expected,)):
+        raise DashboardError(f"{name} has an invalid numeric type")
+    if not math.isfinite(value) or not minimum <= value <= maximum:
+        raise DashboardError(f"{name} is outside its allowed range")
+    return int(value) if integer else float(value)
+
+
+def enum_value(value: Any, name: str, allowed: frozenset[str], *, nullable: bool = False) -> str | None:
+    if value is None and nullable:
+        return None
+    if not isinstance(value, str) or value not in allowed:
+        raise DashboardError(f"{name} is invalid")
+    return value
+
+
+def boolean_value(value: Any, name: str, *, nullable: bool = False) -> bool | None:
+    if value is None and nullable:
+        return None
+    if not isinstance(value, bool):
+        raise DashboardError(f"{name} must be boolean")
+    return value
+
+
+def filesystem_percent(summary: dict[str, Any] | None, name: str) -> float | None:
+    if summary is None:
+        return None
+    filesystems = require_mapping(summary.get("filesystems"), "host filesystems")
+    if set(filesystems) != {"root", "boot"}:
+        raise DashboardError("host filesystems must contain root and boot")
+    filesystem = require_mapping(filesystems[name], f"host filesystem {name}")
+    expected = {
+        "available",
+        "available_bytes",
+        "available_percent",
+        "inode_available_percent",
+        "read_only",
+    }
+    if set(filesystem) != expected:
+        raise DashboardError(f"host filesystem {name} keys are invalid")
+    boolean_value(filesystem["available"], f"host filesystem {name}.available")
+    boolean_value(filesystem["read_only"], f"host filesystem {name}.read_only", nullable=True)
+    return bounded_number(
+        filesystem["available_percent"],
+        f"host filesystem {name}.available_percent",
+        0,
+        100,
+    )
+
+
+def sanitize_health(payload: Any, sampled_at: datetime) -> dict[str, Any]:
+    """Project the health payload into the dashboard's closed, non-identifying schema."""
+
+    health = require_mapping(payload, "health", HEALTH_KEYS)
+    if health.get("schema_version") != HEALTH_SCHEMA_VERSION:
+        raise DashboardError("unsupported health schema version")
+    timing_state = enum_value(health.get("state"), "health.state", TIMING_STATES)
+    host_state = enum_value(health.get("host_state"), "health.host_state", HOST_STATES)
+    timing_available = boolean_value(
+        health.get("timing_collection_available"),
+        "health.timing_collection_available",
+        nullable=True,
+    )
+    host_available = boolean_value(
+        health.get("host_collection_available"),
+        "health.host_collection_available",
+        nullable=True,
+    )
+    timing = (
+        optional_mapping(
+            health.get("last_observation"),
+            "health.last_observation",
+            TIMING_SUMMARY_KEYS,
+        )
+        if timing_available is True
+        else None
+    )
+    host = (
+        optional_mapping(
+            health.get("last_host_observation"),
+            "health.last_host_observation",
+            HOST_SUMMARY_KEYS,
+        )
+        if host_available is True
+        else None
+    )
+
+    def transition(value: Any, name: str, states: frozenset[str]) -> str | None:
+        if value is None:
+            return None
+        mapping = require_mapping(value, name)
+        if set(mapping) != {"from", "to", "at", "previous_duration_seconds", "reasons"}:
+            raise DashboardError(f"{name} keys do not match the health schema")
+        projected = {
+            "from": enum_value(mapping["from"], f"{name}.from", states),
+            "to": enum_value(mapping["to"], f"{name}.to", states),
+            "at": mapping["at"],
+        }
+        if not isinstance(projected["at"], str) or not re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+            projected["at"],
+        ):
+            raise DashboardError(f"{name}.at is invalid")
+        return json.dumps(projected, separators=(",", ":"), sort_keys=True)
+
+    timing_transition = transition(
+        health.get("last_transition"), "health.last_transition", TIMING_STATES
+    )
+    host_transition = transition(
+        health.get("last_host_transition"), "health.last_host_transition", HOST_STATES
+    )
+    selected_source = None
+    gps_fix = None
+    satellites_used = None
+    stratum_value = None
+    system_offset = None
+    root_dispersion = None
+    pps_pulses = None
+    rtc_available = None
+    if timing is not None:
+        selected_source = enum_value(
+            timing.get("selected_source"),
+            "timing.selected_source",
+            frozenset({"GPS", "PPS", "OTHER"}),
+            nullable=True,
+        )
+        gps_fix = enum_value(
+            timing.get("gps_fix"),
+            "timing.gps_fix",
+            frozenset({"UNKNOWN", "NO FIX", "2D", "3D"}),
+        )
+        satellites_used = bounded_number(
+            timing.get("satellites_used"),
+            "timing.satellites_used",
+            0,
+            128,
+            integer=True,
+        )
+        stratum_value = bounded_number(
+            timing.get("stratum"), "timing.stratum", 1, 16, integer=True
+        )
+        system_offset = bounded_number(
+            timing.get("system_offset_seconds"),
+            "timing.system_offset_seconds",
+            -10,
+            10,
+        )
+        root_dispersion = bounded_number(
+            timing.get("root_dispersion_seconds"),
+            "timing.root_dispersion_seconds",
+            0,
+            1000,
+        )
+        pps_pulses = enum_value(
+            timing.get("pps_pulses"),
+            "timing.pps_pulses",
+            frozenset({"ACTIVE", "INACTIVE", "UNKNOWN"}),
+        )
+        rtc_status = enum_value(
+            timing.get("rtc_status"),
+            "timing.rtc_status",
+            frozenset({"OK", "UNAVAILABLE", "UNKNOWN"}),
+        )
+        rtc_available = rtc_status == "OK"
+    temperature = None
+    throttled_flags = None
+    update_status = None
+    reboot_required = None
+    if host is not None:
+        temperature = bounded_number(
+            host.get("temperature_celsius"), "host.temperature_celsius", -40, 150
+        )
+        throttling = require_mapping(host.get("throttling"), "host.throttling")
+        if set(throttling) != {"available", "flags"}:
+            raise DashboardError("host throttling keys are invalid")
+        boolean_value(throttling["available"], "host.throttling.available")
+        throttled_flags = bounded_number(
+            throttling.get("flags"), "host.throttling.flags", 0, 0xFFFFFFFF, integer=True
+        )
+        updates = require_mapping(host.get("updates"), "host.updates")
+        if set(updates) != {"status", "success_age_seconds", "reboot_required", "error"}:
+            raise DashboardError("host update keys are invalid")
+        update_status = enum_value(
+            updates.get("status"),
+            "host.updates.status",
+            frozenset({"UNKNOWN", "SUCCESS", "FAILED"}),
+        )
+        reboot_required = boolean_value(
+            updates.get("reboot_required"), "host.updates.reboot_required", nullable=True
+        )
+    timestamp = sampled_at.astimezone(timezone.utc).replace(microsecond=0)
+    return {
+        "sampled_at": timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "sampled_at_epoch": int(timestamp.timestamp()),
+        "timing_state": timing_state,
+        "host_state": host_state,
+        "timing_collection_available": timing_available,
+        "host_collection_available": host_available,
+        "timing_transition": timing_transition,
+        "host_transition": host_transition,
+        "gps_fix": gps_fix,
+        "satellites_used": satellites_used,
+        "selected_source": selected_source,
+        "stratum": stratum_value,
+        "system_offset_seconds": system_offset,
+        "root_dispersion_seconds": root_dispersion,
+        "pps_pulses": pps_pulses,
+        "rtc_available": rtc_available,
+        "root_available_percent": filesystem_percent(host, "root"),
+        "boot_available_percent": filesystem_percent(host, "boot"),
+        "temperature_celsius": temperature,
+        "throttled_flags": throttled_flags,
+        "update_status": update_status,
+        "reboot_required": reboot_required,
+    }
+
+
+def collect_health(command: Path) -> Any:
+    try:
+        result = subprocess.run(
+            [str(command), "--json"],
+            capture_output=True,
+            check=False,
+            timeout=10,
+            env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C", "HOME": "/"},
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise DashboardError(f"health collection failed: {exc}") from exc
+    if result.returncode != 0:
+        raise DashboardError(f"health collection failed with exit code {result.returncode}")
+    if len(result.stdout) > MAX_HEALTH_BYTES:
+        raise DashboardError("health output exceeds the dashboard bound")
+    try:
+        return json.loads(result.stdout.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise DashboardError(f"health output is invalid JSON: {exc}") from exc
+
+
+def safe_database_path(path: Path, *, existing: bool) -> None:
+    parent = path.parent
+    if not parent.exists() or parent.is_symlink() or not parent.is_dir():
+        raise DashboardError(f"dashboard database directory is unsafe: {parent}")
+    if path.exists():
+        metadata = path.lstat()
+        if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            raise DashboardError("dashboard database is not a regular file")
+        if metadata.st_size > MAX_DATABASE_BYTES:
+            raise DashboardError("dashboard database exceeds its size bound")
+    elif existing:
+        raise DashboardError("dashboard database is not available")
+
+
+def initialize_database(connection: sqlite3.Connection) -> None:
+    connection.execute(f"PRAGMA page_size={DATABASE_PAGE_SIZE}")
+    connection.execute("PRAGMA journal_mode=DELETE")
+    connection.execute("PRAGMA synchronous=FULL")
+    connection.execute("PRAGMA foreign_keys=ON")
+    connection.execute(f"PRAGMA max_page_count={DATABASE_MAX_PAGES}")
+    connection.execute("PRAGMA auto_vacuum=INCREMENTAL")
+    connection.execute(f"PRAGMA application_id={DATABASE_APPLICATION_ID}")
+    connection.execute(f"PRAGMA user_version={DATABASE_USER_VERSION}")
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS samples (
+            sampled_at TEXT NOT NULL,
+            sampled_at_epoch INTEGER PRIMARY KEY,
+            timing_state TEXT NOT NULL,
+            host_state TEXT NOT NULL,
+            timing_collection_available INTEGER,
+            host_collection_available INTEGER,
+            timing_transition TEXT,
+            host_transition TEXT,
+            gps_fix TEXT,
+            satellites_used INTEGER,
+            selected_source TEXT,
+            stratum INTEGER,
+            system_offset_seconds REAL,
+            root_dispersion_seconds REAL,
+            pps_pulses TEXT,
+            rtc_available INTEGER,
+            root_available_percent REAL,
+            boot_available_percent REAL,
+            temperature_celsius REAL,
+            throttled_flags INTEGER,
+            update_status TEXT,
+            reboot_required INTEGER
+        ) WITHOUT ROWID
+        """
+    )
+    if connection.execute("PRAGMA page_size").fetchone()[0] != DATABASE_PAGE_SIZE:
+        raise DashboardError("dashboard database page size is invalid")
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS samples_sampled_at ON samples(sampled_at_epoch)"
+    )
+
+
+def write_sample(database: Path, sample: Mapping[str, Any], retention_hours: int) -> None:
+    safe_database_path(database, existing=False)
+    maximum_rows = retention_hours * 30 + 2
+    cutoff = int(sample["sampled_at_epoch"]) - retention_hours * 3600
+    try:
+        connection = sqlite3.connect(database, timeout=5, isolation_level=None)
+        with connection:
+            initialize_database(connection)
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                f"INSERT OR REPLACE INTO samples ({','.join(SAMPLE_KEYS)}) "
+                f"VALUES ({','.join('?' for _ in SAMPLE_KEYS)})",
+                tuple(sample[key] for key in SAMPLE_KEYS),
+            )
+            connection.execute("DELETE FROM samples WHERE sampled_at_epoch < ?", (cutoff,))
+            connection.execute(
+                "DELETE FROM samples WHERE sampled_at_epoch NOT IN "
+                "(SELECT sampled_at_epoch FROM samples ORDER BY sampled_at_epoch DESC LIMIT ?)",
+                (maximum_rows,),
+            )
+            connection.execute("COMMIT")
+            connection.execute("PRAGMA incremental_vacuum(32)")
+    except sqlite3.Error as exc:
+        raise DashboardError(f"cannot update dashboard database: {exc}") from exc
+    finally:
+        with contextlib.suppress(UnboundLocalError):
+            connection.close()
+    os.chmod(database, 0o644)
+    safe_database_path(database, existing=True)
+
+
+def row_to_sample(row: tuple[Any, ...]) -> dict[str, Any]:
+    if len(row) != len(SAMPLE_KEYS):
+        raise DashboardError("dashboard database row has an invalid shape")
+    result = dict(zip(SAMPLE_KEYS, row, strict=True))
+    sampled_at = result["sampled_at"]
+    sampled_epoch = result["sampled_at_epoch"]
+    if not isinstance(sampled_at, str) or not re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", sampled_at
+    ):
+        raise DashboardError("dashboard database timestamp is invalid")
+    if type(sampled_epoch) is not int or not 0 <= sampled_epoch <= 4_102_444_800:
+        raise DashboardError("dashboard database epoch is invalid")
+    try:
+        parsed_epoch = int(datetime.strptime(sampled_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        ).timestamp())
+    except ValueError as exc:
+        raise DashboardError("dashboard database timestamp is invalid") from exc
+    if parsed_epoch != sampled_epoch:
+        raise DashboardError("dashboard database timestamps are inconsistent")
+    enum_value(result["timing_state"], "sample.timing_state", TIMING_STATES)
+    enum_value(result["host_state"], "sample.host_state", HOST_STATES)
+    enum_value(
+        result["gps_fix"],
+        "sample.gps_fix",
+        frozenset({"UNKNOWN", "NO FIX", "2D", "3D"}),
+        nullable=True,
+    )
+    enum_value(
+        result["selected_source"],
+        "sample.selected_source",
+        frozenset({"GPS", "PPS", "OTHER"}),
+        nullable=True,
+    )
+    bounded_number(result["stratum"], "sample.stratum", 1, 16, integer=True)
+    bounded_number(
+        result["satellites_used"], "sample.satellites_used", 0, 128, integer=True
+    )
+    bounded_number(
+        result["system_offset_seconds"],
+        "sample.system_offset_seconds",
+        -10,
+        10,
+    )
+    bounded_number(
+        result["root_dispersion_seconds"],
+        "sample.root_dispersion_seconds",
+        0,
+        1000,
+    )
+    enum_value(
+        result["pps_pulses"],
+        "sample.pps_pulses",
+        frozenset({"ACTIVE", "INACTIVE", "UNKNOWN"}),
+        nullable=True,
+    )
+    bounded_number(
+        result["root_available_percent"], "sample.root_available_percent", 0, 100
+    )
+    bounded_number(
+        result["boot_available_percent"], "sample.boot_available_percent", 0, 100
+    )
+    bounded_number(
+        result["temperature_celsius"], "sample.temperature_celsius", -40, 150
+    )
+    bounded_number(
+        result["throttled_flags"],
+        "sample.throttled_flags",
+        0,
+        0xFFFFFFFF,
+        integer=True,
+    )
+    enum_value(
+        result["update_status"],
+        "sample.update_status",
+        frozenset({"UNKNOWN", "SUCCESS", "FAILED"}),
+        nullable=True,
+    )
+    for key in (
+        "timing_collection_available",
+        "host_collection_available",
+        "reboot_required",
+        "rtc_available",
+    ):
+        if result[key] not in {None, 0, 1}:
+            raise DashboardError(f"sample.{key} is invalid")
+        result[key] = None if result[key] is None else bool(result[key])
+    for key, states in (
+        ("timing_transition", TIMING_STATES),
+        ("host_transition", HOST_STATES),
+    ):
+        if result[key] is None:
+            continue
+        try:
+            transition = json.loads(result[key])
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise DashboardError(f"sample.{key} is invalid") from exc
+        if not isinstance(transition, dict) or set(transition) != {"from", "to", "at"}:
+            raise DashboardError(f"sample.{key} is invalid")
+        enum_value(transition["from"], f"sample.{key}.from", states)
+        enum_value(transition["to"], f"sample.{key}.to", states)
+        if not isinstance(transition["at"], str) or not re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+            transition["at"],
+        ):
+            raise DashboardError(f"sample.{key}.at is invalid")
+        result[key] = transition
+    return result
+
+
+def read_history(database: Path, hours: int, now_epoch: int) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    safe_database_path(database, existing=True)
+    database_uri = f"file:{quote(str(database))}?mode=ro"
+    try:
+        connection = sqlite3.connect(database_uri, uri=True, timeout=0.2)
+        connection.execute("PRAGMA query_only=ON")
+        connection.execute("PRAGMA busy_timeout=200")
+        if connection.execute("PRAGMA application_id").fetchone()[0] != DATABASE_APPLICATION_ID:
+            raise DashboardError("dashboard database application ID is invalid")
+        if connection.execute("PRAGMA user_version").fetchone()[0] != DATABASE_USER_VERSION:
+            raise DashboardError("dashboard database schema version is invalid")
+        columns = [row[1] for row in connection.execute("PRAGMA table_info(samples)")]
+        if columns != list(SAMPLE_KEYS):
+            raise DashboardError("dashboard database sample schema is invalid")
+        rows = connection.execute(
+            f"SELECT {','.join(SAMPLE_KEYS)} FROM samples "
+            "WHERE sampled_at_epoch >= ? AND sampled_at_epoch <= ? "
+            "ORDER BY sampled_at_epoch LIMIT ?",
+            (now_epoch - hours * 3600, now_epoch + 300, MAX_STORED_ROWS + 1),
+        ).fetchall()
+        if len(rows) > MAX_STORED_ROWS:
+            raise DashboardError("dashboard database row bound exceeded")
+    except sqlite3.Error as exc:
+        raise DashboardError(f"dashboard history is unavailable: {exc}") from exc
+    finally:
+        with contextlib.suppress(UnboundLocalError):
+            connection.close()
+    if len(rows) > MAX_HISTORY_POINTS:
+        step = math.ceil(len(rows) / MAX_HISTORY_POINTS)
+        selected = rows[::step]
+        if selected[-1] != rows[-1]:
+            selected[-1] = rows[-1]
+        rows = selected
+    samples = [row_to_sample(row) for row in rows]
+    latest = samples[-1] if samples else None
+    return latest, samples
+
+
+class RateLimiter:
+    def __init__(self) -> None:
+        self._entries: dict[str, tuple[float, float]] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, peer: str, now: float | None = None) -> bool:
+        current = time.monotonic() if now is None else now
+        with self._lock:
+            tokens, updated = self._entries.get(peer, (RATE_BURST, current))
+            tokens = min(RATE_BURST, tokens + max(0.0, current - updated) * RATE_PER_SECOND)
+            allowed = tokens >= 1.0
+            if allowed:
+                tokens -= 1.0
+            self._entries[peer] = (tokens, current)
+            if len(self._entries) > RATE_ENTRY_LIMIT:
+                oldest = min(self._entries, key=lambda key: self._entries[key][1])
+                if oldest != peer:
+                    self._entries.pop(oldest, None)
+            return allowed
+
+
+class DashboardServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = False
+
+    def __init__(
+        self,
+        address: tuple[str, int],
+        handler: type[BaseHTTPRequestHandler],
+        *,
+        allowed_networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...],
+        database: Path,
+        asset_root: Path,
+    ) -> None:
+        self.address_family = socket.AF_INET6 if ":" in address[0] else socket.AF_INET
+        self.allowed_networks = allowed_networks
+        self.database = database
+        self.asset_root = asset_root
+        self.rate_limiter = RateLimiter()
+        self.request_slots = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
+        super().__init__(address, handler)
+
+    def server_bind(self) -> None:
+        if self.address_family == socket.AF_INET6:
+            self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        super().server_bind()
+
+    def verify_request(self, request: socket.socket, client_address: tuple[Any, ...]) -> bool:
+        try:
+            peer = ipaddress.ip_address(client_address[0])
+        except ValueError:
+            return False
+        allowed = any(
+            peer.version == network.version and peer in network
+            for network in self.allowed_networks
+        )
+        if not allowed:
+            return False
+        peer_text = str(peer)
+        return self.rate_limiter.allow("__global__") and self.rate_limiter.allow(
+            peer_text
+        )
+
+    def process_request(self, request: socket.socket, client_address: tuple[Any, ...]) -> None:
+        if not self.request_slots.acquire(blocking=False):
+            with contextlib.suppress(OSError):
+                request.sendall(
+                    b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n"
+                    b"Content-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\n"
+                    b"Cross-Origin-Resource-Policy: same-origin\r\n"
+                    b"Permissions-Policy: camera=(), geolocation=(), microphone=()\r\n"
+                    b"Referrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n"
+                    b"X-Frame-Options: DENY\r\nContent-Length: 0\r\n\r\n"
+                )
+                request.close()
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.request_slots.release()
+            raise
+
+    def process_request_thread(self, request: socket.socket, client_address: tuple[Any, ...]) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.request_slots.release()
+
+
+class DashboardHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.0"
+    server_version = "PPSPi"
+    sys_version = ""
+
+    def version_string(self) -> str:
+        return "PPSPi"
+
+    def log_message(self, format: str, *args: Any) -> None:
+        del format, args  # Never log client addresses, paths, or query strings.
+
+    def setup(self) -> None:
+        super().setup()
+        self.connection.settimeout(3.0)
+
+    def handle_one_request(self) -> None:
+        try:
+            self.raw_requestline = self.rfile.readline(MAX_REQUEST_TARGET + 2)
+            if len(self.raw_requestline) > MAX_REQUEST_TARGET + 1:
+                self.requestline = ""
+                self.request_version = ""
+                self.command = ""
+                self._error(HTTPStatus.REQUEST_URI_TOO_LONG, head_only=False)
+                return
+            if not self.raw_requestline:
+                self.close_connection = True
+                return
+            if not self.parse_request():
+                return
+            method = getattr(self, f"do_{self.command}", self._method_not_allowed)
+            method()
+            self.wfile.flush()
+        except (TimeoutError, socket.timeout):
+            self.close_connection = True
+
+    class _BoundedHeaderReader:
+        def __init__(self, stream: Any) -> None:
+            self.stream = stream
+            self.total = 0
+            self.count = 0
+
+        def readline(self, limit: int = -1) -> bytes:
+            remaining = MAX_HEADER_BYTES - self.total
+            if remaining <= 0 or self.count >= MAX_HEADER_COUNT:
+                raise http.client.LineTooLong("dashboard header bound exceeded")
+            bound = remaining + 1 if limit < 0 else min(limit, remaining + 1)
+            line = self.stream.readline(bound)
+            self.total += len(line)
+            self.count += 1
+            if self.total > MAX_HEADER_BYTES:
+                raise http.client.LineTooLong("dashboard header bound exceeded")
+            return line
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self.stream, name)
+
+    def parse_request(self) -> bool:
+        original = self.rfile
+        self.rfile = self._BoundedHeaderReader(original)
+        try:
+            return super().parse_request()
+        finally:
+            self.rfile = original
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("do_"):
+            return self._method_not_allowed
+        raise AttributeError(name)
+
+    def send_error(
+        self,
+        code: int,
+        message: str | None = None,
+        explain: str | None = None,
+    ) -> None:
+        del message, explain
+        try:
+            status = HTTPStatus(code)
+        except ValueError:
+            status = HTTPStatus.INTERNAL_SERVER_ERROR
+        self._error(status, head_only=getattr(self, "command", "") == "HEAD")
+
+    def do_GET(self) -> None:  # noqa: N802
+        self._dispatch(head_only=False)
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        self._dispatch(head_only=True)
+
+    def do_POST(self) -> None:  # noqa: N802
+        self._method_not_allowed()
+
+    def do_PUT(self) -> None:  # noqa: N802
+        self._method_not_allowed()
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        self._method_not_allowed()
+
+    def do_PATCH(self) -> None:  # noqa: N802
+        self._method_not_allowed()
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self._method_not_allowed()
+
+    def do_TRACE(self) -> None:  # noqa: N802
+        self._method_not_allowed()
+
+    def do_CONNECT(self) -> None:  # noqa: N802
+        self._method_not_allowed()
+
+    def _security_headers(self) -> None:
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; base-uri 'none'; connect-src 'self'; form-action 'none'; "
+            "frame-ancestors 'none'; img-src 'self'; object-src 'none'; script-src 'self'; "
+            "style-src 'self'",
+        )
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Permissions-Policy", "camera=(), geolocation=(), microphone=()")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+
+    def _send(
+        self,
+        status: HTTPStatus,
+        content: bytes,
+        content_type: str,
+        *,
+        head_only: bool,
+        cache_control: str = "no-store",
+        extra_headers: Mapping[str, str] | None = None,
+    ) -> None:
+        if len(content) > MAX_RESPONSE_BYTES:
+            status = HTTPStatus.INTERNAL_SERVER_ERROR
+            content = b'{"error":"response bound exceeded"}\n'
+            content_type = "application/json; charset=utf-8"
+        self.send_response(status)
+        self._security_headers()
+        self.send_header("Cache-Control", cache_control)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(content)))
+        self.send_header("Connection", "close")
+        if extra_headers:
+            for key, value in extra_headers.items():
+                self.send_header(key, value)
+        self.end_headers()
+        if not head_only:
+            self.wfile.write(content)
+
+    def _error(self, status: HTTPStatus, *, head_only: bool) -> None:
+        content = json.dumps(
+            {"error": status.phrase.lower().replace(" ", "_")},
+            separators=(",", ":"),
+        ).encode("ascii") + b"\n"
+        self._send(status, content, "application/json; charset=utf-8", head_only=head_only)
+
+    def _method_not_allowed(self) -> None:
+        if not self._admit(head_only=False):
+            return
+        self._send(
+            HTTPStatus.METHOD_NOT_ALLOWED,
+            b'{"error":"method_not_allowed"}\n',
+            "application/json; charset=utf-8",
+            head_only=False,
+            extra_headers={"Allow": "GET, HEAD"},
+        )
+
+    def _admit(self, *, head_only: bool) -> bool:
+        server = self.server
+        if not isinstance(server, DashboardServer):
+            self._error(HTTPStatus.INTERNAL_SERVER_ERROR, head_only=head_only)
+            return False
+        content_lengths = self.headers.get_all("Content-Length", failobj=[])
+        if (
+            self.headers.get("Transfer-Encoding") is not None
+            or len(content_lengths) > 1
+            or (content_lengths and content_lengths[0] != "0")
+            or self.headers.get("Expect") is not None
+        ):
+            self._error(HTTPStatus.BAD_REQUEST, head_only=head_only)
+            return False
+        return True
+
+    def _dispatch(self, *, head_only: bool) -> None:
+        if len(self.path) > MAX_REQUEST_TARGET or any(ord(character) < 32 for character in self.path):
+            self._error(HTTPStatus.REQUEST_URI_TOO_LONG, head_only=head_only)
+            return
+        if not self._admit(head_only=head_only):
+            return
+        server = self.server
+        assert isinstance(server, DashboardServer)
+        target = urlsplit(self.path)
+        if target.path == "/api/v1/dashboard":
+            self._api(target.query, head_only=head_only)
+            return
+        if target.query or target.fragment or target.path not in ASSETS:
+            self._error(HTTPStatus.NOT_FOUND, head_only=head_only)
+            return
+        name, content_type = ASSETS[target.path]
+        path = server.asset_root / name
+        try:
+            root_metadata = server.asset_root.lstat()
+            metadata = path.lstat()
+            if (
+                not stat.S_ISDIR(root_metadata.st_mode)
+                or stat.S_ISLNK(root_metadata.st_mode)
+                or not stat.S_ISREG(metadata.st_mode)
+                or stat.S_ISLNK(metadata.st_mode)
+                or metadata.st_size > MAX_ASSET_BYTES
+            ):
+                raise OSError("asset is invalid")
+            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                content = os.read(descriptor, MAX_ASSET_BYTES + 1)
+            finally:
+                os.close(descriptor)
+            if len(content) != metadata.st_size or len(content) > MAX_ASSET_BYTES:
+                raise OSError("asset size changed while reading")
+        except OSError:
+            self._error(HTTPStatus.NOT_FOUND, head_only=head_only)
+            return
+        self._send(
+            HTTPStatus.OK,
+            content,
+            content_type,
+            head_only=head_only,
+            cache_control="public, max-age=3600",
+        )
+
+    def _api(self, query: str, *, head_only: bool) -> None:
+        if len(query) > 64:
+            self._error(HTTPStatus.BAD_REQUEST, head_only=head_only)
+            return
+        try:
+            parameters = parse_qs(query, strict_parsing=bool(query), keep_blank_values=True)
+        except ValueError:
+            self._error(HTTPStatus.BAD_REQUEST, head_only=head_only)
+            return
+        if set(parameters) - {"hours"} or len(parameters.get("hours", [])) > 1:
+            self._error(HTTPStatus.BAD_REQUEST, head_only=head_only)
+            return
+        raw_hours = parameters.get("hours", ["24"])[0]
+        if not re.fullmatch(r"[0-9]{1,3}", raw_hours) or int(raw_hours) not in RANGE_HOURS:
+            self._error(HTTPStatus.BAD_REQUEST, head_only=head_only)
+            return
+        hours = int(raw_hours)
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        server = self.server
+        assert isinstance(server, DashboardServer)
+        try:
+            latest, samples = read_history(server.database, hours, int(now.timestamp()))
+        except DashboardError:
+            self._error(HTTPStatus.SERVICE_UNAVAILABLE, head_only=head_only)
+            return
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "range_hours": hours,
+            "latest": latest,
+            "samples": samples,
+        }
+        content = json.dumps(
+            payload, separators=(",", ":"), sort_keys=True, allow_nan=False
+        ).encode("ascii") + b"\n"
+        self._send(
+            HTTPStatus.OK,
+            content,
+            "application/json; charset=utf-8",
+            head_only=head_only,
+        )
+
+
+def parse_now(value: str | None) -> datetime:
+    if value is None:
+        return datetime.now(timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise DashboardError("--now must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None:
+        raise DashboardError("--now must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def load_dashboard_config(path: Path) -> dict[str, str]:
+    config = parse_env_file(path)
+    validate_config(config)
+    return config
+
+
+def sample(args: argparse.Namespace, config: Mapping[str, str]) -> int:
+    payload = (
+        json.loads(args.health_json.read_text(encoding="utf-8"))
+        if args.health_json is not None
+        else collect_health(args.health_command)
+    )
+    projected = sanitize_health(payload, parse_now(args.now))
+    write_sample(args.database, projected, int(config["DASHBOARD_RETENTION_HOURS"]))
+    return 0
+
+
+def serve(args: argparse.Namespace, config: Mapping[str, str]) -> int:
+    if config["DASHBOARD_ENABLED"] != "true":
+        raise DashboardError("dashboard is disabled")
+    bind = config["DASHBOARD_BIND"]
+    allowed = tuple(
+        ipaddress.ip_network(cidr, strict=True)
+        for cidr in split_cidrs(
+            config["DASHBOARD_ALLOWED_CIDRS"], key="DASHBOARD_ALLOWED_CIDRS"
+        )
+    )
+    server = DashboardServer(
+        (bind, int(config["DASHBOARD_PORT"])),
+        DashboardHandler,
+        allowed_networks=allowed,
+        database=args.database,
+        asset_root=args.asset_root,
+    )
+    try:
+        server.serve_forever(poll_interval=0.5)
+    finally:
+        server.server_close()
+    return 0
+
+
+def preflight(config: Mapping[str, str]) -> int:
+    bind = config["DASHBOARD_BIND"]
+    family = socket.AF_INET6 if ":" in bind else socket.AF_INET
+    probe = socket.socket(family, socket.SOCK_STREAM)
+    try:
+        if family == socket.AF_INET6:
+            probe.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        probe.bind((bind, int(config["DASHBOARD_PORT"])))
+    except OSError as exc:
+        raise DashboardError(f"cannot bind configured dashboard address: {exc}") from exc
+    finally:
+        probe.close()
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
+    subparsers = parser.add_subparsers(dest="action", required=True)
+    sample_parser = subparsers.add_parser("sample", help="persist one sanitized health sample")
+    sample_parser.add_argument("--health-command", type=Path, default=DEFAULT_HEALTH_COMMAND)
+    sample_parser.add_argument("--health-json", type=Path, help=argparse.SUPPRESS)
+    sample_parser.add_argument("--now", help=argparse.SUPPRESS)
+    serve_parser = subparsers.add_parser("serve", help="serve the read-only local dashboard")
+    serve_parser.add_argument("--asset-root", type=Path, default=DEFAULT_ASSET_ROOT)
+    subparsers.add_parser("preflight", help="validate and test the configured bind")
+    args = parser.parse_args()
+    try:
+        config = load_dashboard_config(args.config)
+        if args.action == "sample":
+            if config["DASHBOARD_ENABLED"] != "true":
+                raise DashboardError("dashboard is disabled")
+            return sample(args, config)
+        if args.action == "preflight":
+            return preflight(config)
+        return serve(args, config)
+    except (ConfigError, DashboardError, OSError, json.JSONDecodeError) as exc:
+        print(f"ppstime-dashboard: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
