@@ -29,7 +29,7 @@
       <article class="card"><span>Temperature</span><strong id="temperature">—</strong><small id="storage">Storage unavailable</small></article>
     </section>
     <section class="panel" aria-labelledby="history-title">
-      <div class="panel-head"><div><p class="eyebrow">History</p><h2 id="history-title">Appliance health</h2></div><label class="metric-picker">Graph <select id="metric"><option value="health">Health state</option><option value="signal">Satellites and PPS</option><option value="stratum">Stratum</option><option value="precision">Offset and dispersion</option><option value="thermal">Temperature and throttling</option></select></label></div>
+      <div class="panel-head"><div><p class="eyebrow">History</p><h2 id="history-title">Appliance health</h2><div id="chart-legend" class="legend" aria-label="Graph series"></div></div><label class="metric-picker">Graph <select id="metric"><option value="health">Health state</option><option value="signal">Satellites and PPS</option><option value="stratum">Stratum</option><option value="precision">Offset and dispersion</option><option value="thermal">Temperature and throttling</option></select></label></div>
       <svg id="history-chart" class="chart" viewBox="0 0 1000 240" role="img" aria-labelledby="chart-title chart-description"><title id="chart-title">Timing and host health history</title><desc id="chart-description">No samples loaded.</desc></svg>
       <div id="empty-state" class="empty" hidden>No samples are available for this range yet.</div>
     </section>

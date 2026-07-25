@@ -107,6 +107,7 @@ function healthScore(state) {
 const metricDefinitions = {
   health: {
     title: "Appliance health",
+    axis: { domain: [0, 3], labels: ["Error", "Unsync", "Fallback", "Healthy"] },
     series: [
       ["Timing", (sample) => sample.timing_collection_available === true ? healthScore(sample.timing_state) : null, "timing"],
       ["Host", (sample) => sample.host_collection_available === true ? healthScore(sample.host_state) : null, "host"],
@@ -114,17 +115,20 @@ const metricDefinitions = {
   },
   signal: {
     title: "Satellites and PPS availability",
+    axis: { includeZero: true, integer: true },
     series: [
       ["Satellites", (sample) => sample.timing_collection_available === true ? metricValue(sample.satellites_used) : null, "timing"],
-      ["PPS", (sample) => sample.timing_collection_available === true && sample.pps_pulses !== null ? (sample.pps_pulses === "ACTIVE" ? 1 : 0) : null, "host"],
+      ["PPS", (sample) => sample.timing_collection_available === true && sample.pps_pulses !== null ? (sample.pps_pulses === "ACTIVE" ? 1 : 0) : null, "host", "binary"],
     ],
   },
   stratum: {
     title: "NTP stratum",
     series: [["Stratum", (sample) => sample.timing_collection_available === true ? metricValue(sample.stratum) : null, "timing"]],
+    axis: { integer: true },
   },
   precision: {
     title: "Offset and root dispersion (µs)",
+    axis: { includeZero: true, unit: "µs" },
     series: [
       ["Offset", (sample) => sample.timing_collection_available === true ? metricValue(sample.system_offset_seconds, 1e6) : null, "timing"],
       ["Dispersion", (sample) => sample.timing_collection_available === true ? metricValue(sample.root_dispersion_seconds, 1e6) : null, "host"],
@@ -132,12 +136,82 @@ const metricDefinitions = {
   },
   thermal: {
     title: "Temperature and throttling",
+    axis: { unit: "°C" },
     series: [
       ["Temperature °C", (sample) => sample.host_collection_available === true ? metricValue(sample.temperature_celsius) : null, "timing"],
-      ["Throttled", (sample) => sample.host_collection_available === true && sample.throttled_flags !== null ? (sample.throttled_flags ? 1 : 0) : null, "host"],
+      ["Throttled", (sample) => sample.host_collection_available === true && sample.throttled_flags !== null ? (sample.throttled_flags ? 1 : 0) : null, "host", "binary"],
     ],
   },
 };
+
+function niceStep(value, integer) {
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const fraction = value / magnitude;
+  const niceFraction = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
+  return Math.max(integer ? 1 : Number.MIN_VALUE, niceFraction * magnitude);
+}
+
+function buildScale(values, options = {}) {
+  if (Array.isArray(options.domain)) {
+    const [minimum, maximum] = options.domain;
+    const tickCount = options.labels ? options.labels.length : 4;
+    return {
+      minimum,
+      maximum,
+      ticks: Array.from(
+        { length: tickCount },
+        (_, index) => minimum + ((maximum - minimum) * index) / (tickCount - 1),
+      ),
+    };
+  }
+  let minimum = Math.min(...values);
+  let maximum = Math.max(...values);
+  if (options.includeZero) {
+    minimum = Math.min(0, minimum);
+    maximum = Math.max(0, maximum);
+  }
+  if (minimum === maximum) {
+    const padding = options.integer ? 1 : Math.max(Math.abs(minimum) * 0.1, 1);
+    minimum -= padding;
+    maximum += padding;
+    if (options.includeZero) minimum = Math.min(0, minimum);
+  }
+  const step = niceStep((maximum - minimum) / 4, options.integer === true);
+  const niceMinimum = Math.floor(minimum / step) * step;
+  const niceMaximum = Math.ceil(maximum / step) * step;
+  const ticks = [];
+  for (let tick = niceMinimum; tick <= niceMaximum + step / 2; tick += step) {
+    ticks.push(Number(tick.toPrecision(12)));
+  }
+  return { minimum: niceMinimum, maximum: niceMaximum, ticks };
+}
+
+function formatAxisNumber(number) {
+  const absolute = Math.abs(number);
+  if (absolute >= 100 || Number.isInteger(number)) return number.toFixed(0);
+  if (absolute >= 1) return number.toFixed(1).replace(/\.0$/, "");
+  if (absolute >= 0.01) return number.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  return number.toExponential(1);
+}
+
+function formatAxisTick(number, options, index) {
+  if (options.labels) return options.labels[index] || formatAxisNumber(number);
+  return `${formatAxisNumber(number)}${options.unit ? ` ${options.unit}` : ""}`;
+}
+
+function renderLegend(definition) {
+  const legend = byId("chart-legend");
+  legend.replaceChildren();
+  definition.series.forEach(([name, , cssClass]) => {
+    const item = document.createElement("span");
+    const key = document.createElement("i");
+    key.className = `${cssClass}-key`;
+    key.setAttribute("aria-hidden", "true");
+    item.append(key, document.createTextNode(name));
+    legend.append(item);
+  });
+}
 
 function renderChart(samples) {
   const chart = byId("history-chart");
@@ -153,16 +227,38 @@ function renderChart(samples) {
   }
   const definition = metricDefinitions[byId("metric").value] || metricDefinitions.health;
   byId("history-title").textContent = definition.title;
-  const values = definition.series.flatMap(([, getter]) => samples.map(getter)).filter(Number.isFinite);
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
-  const span = maximum === minimum ? 1 : maximum - minimum;
-  const x = (index) => 36 + (samples.length === 1 ? 472 : (index * 944) / (samples.length - 1));
-  const y = (number) => 210 - ((number - minimum) / span) * 180;
-  [30, 90, 150, 210].forEach((position) =>
-    chart.append(svg("line", { x1: 36, y1: position, x2: 980, y2: position, class: "grid" })),
-  );
-  definition.series.forEach(([, getter, cssClass]) => {
+  renderLegend(definition);
+  const values = definition.series
+    .filter(([, , , axis]) => axis !== "binary")
+    .flatMap(([, getter]) => samples.map(getter))
+    .filter(Number.isFinite);
+  if (!values.length) {
+    empty.hidden = false;
+    chart.hidden = true;
+    chart.querySelector("desc").textContent = "No finite samples are available for this metric.";
+    return;
+  }
+  const scale = buildScale(values, definition.axis);
+  const span = scale.maximum - scale.minimum;
+  const plotLeft = 112;
+  const plotRight = definition.series.some(([, , , axis]) => axis === "binary") ? 875 : 970;
+  const x = (index) => plotLeft + (samples.length === 1 ? (plotRight - plotLeft) / 2 : (index * (plotRight - plotLeft)) / (samples.length - 1));
+  const y = (number, axis) => axis === "binary" ? 210 - number * 180 : 210 - ((number - scale.minimum) / span) * 180;
+  scale.ticks.forEach((tick, index) => {
+    const position = y(tick);
+    chart.append(svg("line", { x1: plotLeft, y1: position, x2: plotRight, y2: position, class: "grid" }));
+    const label = svg("text", { x: plotLeft - 14, y: position + 7, class: "axis", "text-anchor": "end" });
+    label.textContent = formatAxisTick(tick, definition.axis, index);
+    chart.append(label);
+  });
+  if (definition.series.some(([, , , axis]) => axis === "binary")) {
+    [[30, "On"], [210, "Off"]].forEach(([position, text]) => {
+      const label = svg("text", { x: plotRight + 14, y: position + 7, class: "axis", "text-anchor": "start" });
+      label.textContent = text;
+      chart.append(label);
+    });
+  }
+  definition.series.forEach(([, getter, cssClass, axis]) => {
     let segment = [];
     const flush = () => {
       if (segment.length) {
@@ -176,11 +272,11 @@ function renderChart(samples) {
         flush();
         return;
       }
-      segment.push(`${x(index)},${y(number)}`);
+      segment.push(`${x(index)},${y(number, axis)}`);
     });
     flush();
   });
-  chart.querySelector("desc").textContent = `${samples.length} sanitized samples. ${definition.series.map(([name]) => name).join(" and ")}.`;
+  chart.querySelector("desc").textContent = `${samples.length} sanitized samples. ${definition.series.map(([name]) => name).join(" and ")}. Y-axis ${formatAxisTick(scale.minimum, definition.axis, 0)} to ${formatAxisTick(scale.maximum, definition.axis, scale.ticks.length - 1)}.`;
 }
 
 let currentSamples = [];
@@ -205,16 +301,23 @@ async function load(hours) {
   }
 }
 
-document.querySelectorAll("[data-hours]").forEach((button) =>
-  button.addEventListener("click", () => {
-    document.querySelectorAll("[data-hours]").forEach((item) => item.classList.remove("active"));
-    button.classList.add("active");
-    load(button.dataset.hours);
-  }),
-);
-byId("metric").addEventListener("change", () => renderChart(currentSamples));
-load("24");
-setInterval(() => {
-  const active = document.querySelector("[data-hours].active");
-  load(active ? active.dataset.hours : "24");
-}, 120000);
+function initializeDashboard() {
+  document.querySelectorAll("[data-hours]").forEach((button) =>
+    button.addEventListener("click", () => {
+      document.querySelectorAll("[data-hours]").forEach((item) => item.classList.remove("active"));
+      button.classList.add("active");
+      load(button.dataset.hours);
+    }),
+  );
+  byId("metric").addEventListener("change", () => renderChart(currentSamples));
+  load("24");
+  setInterval(() => {
+    const active = document.querySelector("[data-hours].active");
+    load(active ? active.dataset.hours : "24");
+  }, 120000);
+}
+
+if (typeof document !== "undefined") initializeDashboard();
+if (typeof module !== "undefined") {
+  module.exports = { buildScale, formatAxisNumber, formatAxisTick };
+}
