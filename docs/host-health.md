@@ -55,19 +55,22 @@ fixed-cardinality source availability and one-hot update status for these cases.
 
 ## Collected sources
 
-The standalone collector reads only bounded local state:
+The standalone collector reads only bounded local state. The scheduled monitor
+runs with `ProtectSystem=strict`, so its own mount namespace intentionally sees
+the filesystem as read-only. Filesystem writability and mount identity therefore
+come from PID 1's host mount namespace rather than the collector's sandbox:
 
-- `statvfs()` for root and boot free bytes, free percentage, inode percentage,
-  and read-only flags. Available percentage uses blocks available to
+- `statvfs()` for root and boot free bytes, free percentage, and inode percentage.
+  Available percentage uses blocks available to
   unprivileged processes divided by total blocks, so it may differ slightly from
   `df` when ext4 reserved blocks exist;
 - `/sys/class/thermal/thermal_zone*/` for CPU temperature;
 - `vcgencmd get_throttled` from Raspberry Pi OS `raspi-utils` for current and
   historical under-voltage, frequency-cap, throttling, and soft-temperature
   bits;
-- `/proc/self/mountinfo` to require a real boot mount instead of treating an
-  unmounted `/boot/firmware` directory as healthy;
-- `/proc/self/mountinfo`, `/sys/dev/block`, and
+- `/proc/1/mountinfo` for host `ro`/`rw` state and to require a real boot mount
+  instead of treating an unmounted `/boot/firmware` directory as healthy;
+- `/proc/1/mountinfo`, `/sys/dev/block`, and
   `/sys/fs/ext4/<root-device>/errors_count` for the persistent ext4 root error
   counter when available;
 - `/var/lib/ppstime/os-update-state.json`, a closed non-secret marker reserved
