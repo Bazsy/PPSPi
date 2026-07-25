@@ -272,7 +272,7 @@ done
 sudo grep -Fxq 'HOST_DISK_WARNING_PERCENT=15.0' \
     "${root_mount}/etc/ppstime/ppstime.env"
 sudo grep -Fxq 'APP_UPDATES_ENABLED=false' "${root_mount}/etc/ppstime/ppstime.env"
-sudo grep -Fxq 'APP_UPDATE_VERSION=' "${root_mount}/etc/ppstime/ppstime.env"
+sudo grep -Fxq "APP_UPDATE_VERSION=''" "${root_mount}/etc/ppstime/ppstime.env"
 sudo grep -Fxq 'DASHBOARD_ENABLED=false' "${root_mount}/etc/ppstime/ppstime.env"
 sudo grep -Fxq 'DASHBOARD_BIND=127.0.0.1' "${root_mount}/etc/ppstime/ppstime.env"
 sudo grep -Fxq 'DASHBOARD_ALLOWED_CIDRS=127.0.0.1/32' \
