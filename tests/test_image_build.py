@@ -148,6 +148,9 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("RuntimeDirectoryPreserve=yes", image_validator)
 
     def test_image_requires_default_disabled_sandboxed_dashboard(self) -> None:
+        install_script = (PROJECT_ROOT / "scripts" / "install.sh").read_text(
+            encoding="utf-8"
+        )
         image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(
             encoding="utf-8"
         )
@@ -158,6 +161,25 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("DASHBOARD_ENABLED=false", image_validator)
         self.assertIn("DynamicUser=true", image_validator)
         self.assertIn("PrivateNetwork=true", image_validator)
+        self.assertIn(
+            "systemctl disable ppstime-dashboard.service ppstime-dashboard-sample.timer",
+            install_script,
+        )
+        self.assertIn(
+            "systemctl stop ppstime-dashboard.service ppstime-dashboard-sample.timer",
+            install_script,
+        )
+        self.assertNotIn(
+            "systemctl disable --now ppstime-dashboard.service",
+            install_script,
+        )
+
+    def test_image_validator_reports_bare_assertion_failures(self) -> None:
+        image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("trap report_validation_error ERR", image_validator)
+        self.assertIn("command failed at line %s", image_validator)
 
     def test_image_requires_configuration_backup_command(self) -> None:
         image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(

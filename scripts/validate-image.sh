@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+report_validation_error() {
+    local exit_code="$?"
+    printf 'PPSPi image validation error: command failed at line %s (exit %s): %s\n' \
+        "${BASH_LINENO[0]}" "${exit_code}" "${BASH_COMMAND}" >&2
+}
+trap report_validation_error ERR
+
 image_file="${1:-}"
 [[ -n "${image_file}" ]] || {
     printf 'Usage: %s IMAGE.img.xz\n' "${0##*/}" >&2
