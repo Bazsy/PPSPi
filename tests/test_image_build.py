@@ -111,6 +111,7 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("ppstime-update", image_validator)
         self.assertIn("install-origin.json", image_validator)
         self.assertIn("APP_UPDATES_ENABLED=false", image_validator)
+        self.assertIn("APP_UPDATE_VERSION=''", image_validator)
 
     def test_image_removes_only_missing_cloud_init_module(self) -> None:
         stage_script = (
