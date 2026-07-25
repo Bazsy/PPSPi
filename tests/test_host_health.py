@@ -158,6 +158,62 @@ class HostHealthTests(unittest.TestCase):
         self.assertEqual(result["inode_available_percent"], 30.0)
         self.assertTrue(result["read_only"])
 
+    def test_host_mountinfo_overrides_sandbox_statvfs_flags(self) -> None:
+        module = load_host_health_module()
+        fake = SimpleNamespace(
+            f_bavail=25,
+            f_blocks=100,
+            f_frsize=4096,
+            f_favail=30,
+            f_files=100,
+            f_flag=getattr(module.os, "ST_RDONLY", 1),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            mountinfo = Path(temporary) / "mountinfo"
+            mountinfo.write_text(
+                "36 25 179:2 / / rw,relatime - ext4 /dev/mmcblk0p2 rw\n",
+                encoding="utf-8",
+            )
+            with patch.object(module.os, "statvfs", return_value=fake):
+                result = module.filesystem_status(Path("/"), mountinfo)
+            self.assertTrue(result["available"])
+            self.assertFalse(result["read_only"])
+
+            mountinfo.write_text(
+                "36 25 179:2 / / ro,relatime - ext4 /dev/mmcblk0p2 ro\n",
+                encoding="utf-8",
+            )
+            fake.f_flag = 0
+            with patch.object(module.os, "statvfs", return_value=fake):
+                result = module.filesystem_status(Path("/"), mountinfo)
+            self.assertTrue(result["read_only"])
+
+    def test_unknown_host_mount_state_fails_closed(self) -> None:
+        module = load_host_health_module()
+        fake = SimpleNamespace(
+            f_bavail=25,
+            f_blocks=100,
+            f_frsize=4096,
+            f_favail=30,
+            f_files=100,
+            f_flag=0,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            mountinfo = Path(temporary) / "mountinfo"
+            mountinfo.write_text(
+                "36 25 179:2 / /other rw,relatime - ext4 /dev/mmcblk0p2 rw\n",
+                encoding="utf-8",
+            )
+            with patch.object(module.os, "statvfs", return_value=fake):
+                result = module.filesystem_status(Path("/"), mountinfo)
+        self.assertFalse(result["available"])
+        self.assertIsNone(result["read_only"])
+        self.assertEqual(result["error"], "mount_state_unavailable")
+
+    def test_cli_defaults_to_pid_one_mount_namespace(self) -> None:
+        command = HOST_HEALTH_COMMAND.read_text(encoding="utf-8")
+        self.assertIn('default=Path("/proc/1/mountinfo")', command)
+
     def test_temperature_and_throttling_parsers(self) -> None:
         module = load_host_health_module()
         with tempfile.TemporaryDirectory() as temporary:
