@@ -81,6 +81,7 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("unattended-upgrades", image_packages.split())
         self.assertIn("ppstime-maintenance.timer", image_validator)
         self.assertIn("ppstime-maintenance-post-boot.timer", image_validator)
+        self.assertIn("/usr/local/sbin/ppstime-maintenance", image_validator)
         self.assertIn("52ppstime-unattended-upgrades", image_validator)
         self.assertIn("apt-daily-upgrade.timer", image_validator)
         self.assertIn(

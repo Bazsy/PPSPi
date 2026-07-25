@@ -74,6 +74,14 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue(
                 (root / "usr" / "lib" / "ppstime" / "ppstime-host-health").is_file()
             )
+            maintenance_link = root / "usr" / "local" / "sbin" / "ppstime-maintenance"
+            self.assertTrue(maintenance_link.is_symlink())
+            self.assertEqual(
+                maintenance_link.readlink(), Path("/usr/lib/ppstime/ppstime-maintenance")
+            )
+            self.assertTrue(
+                (root / "usr" / "lib" / "ppstime" / "ppstime-maintenance").is_file()
+            )
             health_link = root / "usr" / "local" / "sbin" / "ppstime-health"
             self.assertTrue(health_link.is_symlink())
             self.assertEqual(health_link.readlink(), Path("/usr/lib/ppstime/ppstime-health"))
