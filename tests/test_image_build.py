@@ -96,6 +96,22 @@ class ImageBuildTests(unittest.TestCase):
             install_script,
         )
 
+    def test_verified_application_update_is_in_both_install_paths(self) -> None:
+        install_script = (PROJECT_ROOT / "scripts" / "install.sh").read_text(
+            encoding="utf-8"
+        )
+        image_packages = (
+            PROJECT_ROOT / "pi-gen" / "stage-pps-pi" / "00-packages" / "00-packages"
+        ).read_text(encoding="utf-8")
+        image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("minisign", install_script)
+        self.assertIn("minisign", image_packages.split())
+        self.assertIn("ppstime-update", image_validator)
+        self.assertIn("install-origin.json", image_validator)
+        self.assertIn("APP_UPDATES_ENABLED=false", image_validator)
+
     def test_image_removes_only_missing_cloud_init_module(self) -> None:
         stage_script = (
             PROJECT_ROOT / "pi-gen" / "stage-pps-pi" / "01-install" / "00-run.sh"
@@ -237,6 +253,9 @@ class ImageBuildTests(unittest.TestCase):
         self.assertNotIn("workflow_dispatch:", workflow)
         self.assertNotIn("pull_request:", workflow)
         self.assertNotIn("push:", workflow)
+        self.assertIn("MINISIGN_SECRET_KEY", workflow)
+        self.assertIn("package-application-update.py", workflow)
+        self.assertIn("--require-application-update", workflow)
         self.assertIn("permissions:\n  contents: write", workflow)
         self.assertIn("environment: release", workflow)
         self.assertIn(
@@ -252,6 +271,8 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn(image_validation, workflow)
         self.assertIn(asset_validation, workflow)
         self.assertNotIn('gh release upload "${TAG_NAME}" artifacts/*', workflow)
+        self.assertNotIn("--clobber", workflow)
+        self.assertIn("scripts/validate-semver.py", workflow)
         for asset in (
             "ppspi-${VERSION}-raspios-trixie-arm64.img.xz",
             "ppspi-${VERSION}-raspios-trixie-arm64.img.xz.sha256",

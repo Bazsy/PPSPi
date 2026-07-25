@@ -6,7 +6,6 @@ build_info=""
 version=""
 output_dir="artifacts"
 image_url=""
-readonly SEMVER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 
 usage() {
     cat << 'EOF'
@@ -64,7 +63,8 @@ done
 [[ -f "${input_image}" ]] || die "image not found: ${input_image}"
 [[ "${input_image}" == *.img.xz ]] || die "image must use the .img.xz format"
 [[ -f "${build_info}" ]] || die "build metadata not found: ${build_info}"
-[[ "${version}" =~ ${SEMVER_RE} ]] || die "version must be valid semantic versioning"
+python3 "$(dirname "${BASH_SOURCE[0]}")/validate-semver.py" "${version}" ||
+    die "version must be valid semantic versioning"
 command -v xz > /dev/null 2>&1 || die "xz is required"
 xz --test "${input_image}" || die "image failed XZ integrity validation"
 python3 -c '

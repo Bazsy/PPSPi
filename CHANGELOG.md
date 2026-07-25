@@ -20,6 +20,17 @@ All notable changes are documented here. PPSPi follows
 - distribution-native unattended OS security updates in a configurable weekly
   window, with package audit, atomic state, RTC preflight, required-only reboot,
   and boot-ID acknowledgment that prevents reboot loops.
+- signed, exact-version application-only updates with canonical manifests,
+  strict allow-listed archive parsing, install-origin adoption, transactional
+  per-file snapshots, boot recovery, local rollback, scheduled same-series
+  maintenance integration, diagnostics, and release-asset validation.
+
+### Security
+
+- durable, hash-verified update snapshots and fail-closed interrupted recovery;
+- persisted signed release identity and exact managed-file inventory;
+- staged systemd candidate validation, bounded HTTPS redirects/local artifacts,
+  strict shared SemVer validation, and immutable release asset names.
 
 ## 0.1.0 - 2026-07-22
 

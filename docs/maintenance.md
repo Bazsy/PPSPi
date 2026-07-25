@@ -1,8 +1,9 @@
 # Unattended OS maintenance
 
 PPSPi can install signed Raspberry Pi OS/Debian package updates in one weekly
-maintenance window. It uses the distribution-native `unattended-upgrades` tool,
-never reboots unconditionally, and does not update PPSPi application code.
+maintenance window. It uses the distribution-native `unattended-upgrades` tool
+and never reboots unconditionally. Separately enabled, exact-version PPSPi
+application updates can run in the same window after package audit.
 
 This feature is available in `0.2.0-dev`, not the published v0.1.0 image.
 
@@ -18,10 +19,14 @@ OS_MAINTENANCE_TIME=04:00
 OS_MAINTENANCE_TIMEZONE=UTC
 OS_MAINTENANCE_RANDOM_DELAY_MINUTES=30
 OS_REBOOT_ENABLED=true
+APP_UPDATES_ENABLED=false
+APP_UPDATE_VERSION=
 ```
 
 PPSPi disables the competing `apt-daily.timer` and
-`apt-daily-upgrade.timer`, then enables `ppstime-maintenance.timer`. The default
+`apt-daily-upgrade.timer`, then enables `ppstime-maintenance.timer` whenever
+either `OS_UPDATES_ENABLED` or `APP_UPDATES_ENABLED` is true. It disables the
+PPSPi timer only when both are false. The default
 APT policy permits Debian security updates only. It disables
 `unattended-upgrades` built-in reboot behavior so PPSPi can perform package,
 clock, and RTC preflight itself.
@@ -42,12 +47,19 @@ At the configured weekly window, with a bounded randomized delay:
 2. run `apt-get update`;
 3. run `unattended-upgrade --verbose` using the PPSPi origin policy;
 4. require `dpkg --audit` to report no incomplete package state;
-5. atomically write `/var/lib/ppstime/os-update-state.json`;
-6. stop when `/run/reboot-required` is absent;
-7. when a reboot is required and enabled, require synchronized Chrony, require a
+5. when explicitly enabled, apply the exact signed same-series
+  `APP_UPDATE_VERSION` through `ppstime-update`;
+6. atomically write `/var/lib/ppstime/os-update-state.json`;
+7. stop when `/run/reboot-required` is absent;
+8. when a reboot is required and enabled, require synchronized Chrony, require a
   real RTC save (a skipped save is failure), and audit packages again;
-8. write a persistent reboot marker containing reason and current kernel boot ID;
-9. request `systemctl reboot`.
+9. write a persistent reboot marker containing reason and current kernel boot ID;
+10. request `systemctl reboot`.
+
+When OS updates are disabled but application updates are enabled, steps 2–3 are
+skipped but the clean `dpkg --audit` gate still runs before the application
+update. An application update never runs before an enabled OS update/upgrade or
+against a known incomplete package state.
 
 A package failure writes a `FAILED` update result while preserving the previous
 successful timestamp. The service fails visibly in systemd and never continues
@@ -114,9 +126,10 @@ sudo ppstime-config set OS_UPDATES_ENABLED false
 sudo ppstime-config apply
 ```
 
-This keeps the distribution `apt-daily*` timers disabled as well, so setting
-`OS_UPDATES_ENABLED=false` means no automatic OS updates until PPSPi maintenance
-or another operator-managed update scheduler is enabled.
+This keeps the distribution `apt-daily*` timers disabled as well. Setting
+`OS_UPDATES_ENABLED=false` prevents automatic OS updates, but the PPSPi timer
+remains enabled when `APP_UPDATES_ENABLED=true`. Disable both settings to stop
+all automatic PPSPi maintenance.
 
 ## Change the maintenance window
 
@@ -164,9 +177,10 @@ archive before sharing.
 ## Recovery and boundaries
 
 Create a [configuration backup](backup-restore.md) before enabling unattended
-maintenance on an existing appliance. This feature updates signed OS packages;
-it does not update PPSPi application files or cross PPSPi versions. Verified
-application update and rollback remain issue #68.
+maintenance on an existing appliance. OS package rollback remains outside
+PPSPi. Application updates use a separate signed, allow-listed, transactional
+mechanism and never cross compatibility series; see
+[verified application updates](application-updates.md).
 
 If package management is interrupted, do not repeatedly trigger the timer. Review
 `dpkg --audit`, APT/unattended-upgrades logs, the PPSPi maintenance journal, disk

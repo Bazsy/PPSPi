@@ -1,0 +1,885 @@
+#!/usr/bin/env python3
+"""Check, apply, inspect, roll back, or recover PPSPi application updates."""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import fcntl
+import hashlib
+import json
+import os
+import platform
+import re
+import secrets
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from ppstime_core import ConfigError, parse_env_file
+from ppstime_update import (
+    GENERATED_TRANSACTION_PATHS,
+    MAX_ARCHIVE_BYTES,
+    MAX_MANIFEST_BYTES,
+    MAX_SIGNATURE_BYTES,
+    MAX_TRANSACTION_FILES,
+    UpdateError,
+    atomic_json,
+    bounded_local_copy,
+    canonical_json,
+    compatibility_series,
+    durable_copy,
+    durable_tree,
+    durable_unlink,
+    fetch,
+    fsync_directory,
+    load_manifest_bytes,
+    load_transaction,
+    now_text,
+    parse_version,
+    read_installation,
+    read_origin,
+    restore_transaction,
+    signing_key_id,
+    validate_archive,
+    validate_installation,
+    verify_signature,
+    version_is_downgrade,
+)
+
+DEFAULT_CONFIG = Path("/etc/ppstime/ppstime.env")
+DEFAULT_ORIGIN = Path("/var/lib/ppstime/install-origin.json")
+DEFAULT_STATE = Path("/var/lib/ppstime/application-update-state.json")
+DEFAULT_INSTALLATION = Path("/var/lib/ppstime/application-installation.json")
+DEFAULT_TRANSACTIONS = Path("/var/lib/ppstime/application-updates")
+DEFAULT_LOCK = Path("/run/lock/ppstime-maintenance.lock")
+DEFAULT_PUBLIC_KEY = Path("/usr/share/ppstime/application-update.pub")
+DEFAULT_REPOSITORY = "Bazsy/PPSPi"
+
+
+def installation_path(args: argparse.Namespace) -> Path:
+    return rooted(
+        args.root,
+        getattr(args, "installation_file", DEFAULT_INSTALLATION),
+    )
+
+
+def target_identity(
+    args: argparse.Namespace, manifest: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Build persisted identity; return None only for legacy in-process test fixtures."""
+
+    required = {"repository", "version", "git_commit", "archive", "payload"}
+    if not required.issubset(manifest):
+        return None
+    public_key = getattr(args, "public_key", None)
+    if not isinstance(public_key, Path):
+        return None
+    identity = {
+        "schema_version": 1,
+        "repository": manifest["repository"],
+        "version": manifest["version"],
+        "git_commit": manifest["git_commit"],
+        "manifest_sha256": hashlib.sha256(canonical_json(manifest)).hexdigest(),
+        "archive_sha256": manifest["archive"]["sha256"],
+        "signing_key_id": signing_key_id(public_key),
+        "managed_paths": sorted(entry["path"] for entry in manifest["payload"]),
+    }
+    return validate_installation(identity)
+
+
+def restore_installation_identity(
+    path: Path, previous_identity: dict[str, Any] | None
+) -> None:
+    if previous_identity is None:
+        durable_unlink(path, missing_ok=True)
+    else:
+        atomic_json(path, previous_identity)
+
+
+def managed_unit_names(paths: set[str]) -> set[str]:
+    units: set[str] = set()
+    for relative in paths:
+        prefix = "etc/systemd/system/"
+        if not relative.startswith(prefix):
+            continue
+        unit_relative = relative.removeprefix(prefix)
+        if unit_relative.endswith((".service", ".timer")):
+            units.add(Path(unit_relative).name)
+        elif ".service.d/" in unit_relative or ".timer.d/" in unit_relative:
+            units.add(unit_relative.split(".d/", 1)[0])
+    return units
+
+
+def capture_unit_states(root: Path, units: set[str]) -> dict[str, dict[str, Any]]:
+    if root != Path("/"):
+        return {}
+    states: dict[str, dict[str, Any]] = {}
+    for unit in sorted(units):
+        enabled_result = run_command(["systemctl", "is-enabled", unit], timeout=30)
+        enabled = enabled_result.stdout.strip() or "not-found"
+        if enabled not in {"enabled", "disabled", "static", "indirect", "masked"}:
+            enabled = "not-found"
+        states[unit] = {
+            "existed": enabled != "not-found",
+            "enabled": enabled,
+            "active": run_command(
+                ["systemctl", "is-active", "--quiet", unit], timeout=30
+            ).returncode
+            == 0,
+        }
+    return states
+
+
+def reconcile_units(
+    root: Path,
+    target_units: set[str],
+    stale_units: set[str],
+    previous_states: dict[str, dict[str, Any]],
+) -> None:
+    if root != Path("/"):
+        return
+    config = parse_env_file(root / "etc/ppstime/ppstime.env")
+    desired = {
+        unit: state["enabled"] == "enabled"
+        for unit, state in previous_states.items()
+    }
+    desired.update(
+        {
+            "ppstime-healthcheck.timer": True,
+            "ppstime-maintenance-post-boot.timer": True,
+            "ppstime-update-recovery.service": True,
+            "ppstime-maintenance.timer": (
+                config["OS_UPDATES_ENABLED"] == "true"
+                or config["APP_UPDATES_ENABLED"] == "true"
+            ),
+            "ppstime-rtc-restore.service": config["RTC_ENABLED"] == "true",
+            "ppstime-rtc-save.timer": config["RTC_ENABLED"] == "true",
+        }
+    )
+    for unit in sorted(stale_units):
+        result = run_command(["systemctl", "disable", "--now", unit])
+        if result.returncode != 0:
+            raise UpdateError(f"cannot disable stale PPSPi unit: {unit}")
+    for unit in sorted(target_units):
+        enabled = desired.get(unit, False)
+        operation = "enable" if enabled else "disable"
+        command = ["systemctl", operation]
+        if unit.endswith(".timer") or not enabled:
+            command.append("--now")
+        command.append(unit)
+        result = run_command(command)
+        if result.returncode != 0:
+            raise UpdateError(f"cannot reconcile PPSPi unit enablement: {unit}")
+
+
+def quiesce_new_units(root: Path, states: dict[str, dict[str, Any]]) -> None:
+    if root != Path("/"):
+        return
+    for unit, state in sorted(states.items()):
+        if state["existed"]:
+            continue
+        result = run_command(["systemctl", "disable", "--now", unit])
+        if result.returncode != 0:
+            raise UpdateError(f"cannot quiesce newly introduced PPSPi unit: {unit}")
+
+
+def restore_unit_states(root: Path, states: dict[str, dict[str, Any]]) -> None:
+    if root != Path("/"):
+        return
+    reload_result = run_command(["systemctl", "daemon-reload"])
+    if reload_result.returncode != 0:
+        raise UpdateError("cannot reload systemd while restoring unit state")
+    for unit, state in sorted(states.items()):
+        if not state["existed"]:
+            continue
+        enabled = state["enabled"]
+        if enabled == "masked":
+            command = ["systemctl", "mask", unit]
+        elif enabled == "enabled":
+            command = ["systemctl", "enable", unit]
+        elif enabled == "disabled":
+            command = ["systemctl", "disable", unit]
+        else:
+            command = []
+        if command:
+            result = run_command(command)
+            if result.returncode != 0:
+                raise UpdateError(f"cannot restore PPSPi unit enablement: {unit}")
+        command = ["systemctl", "start" if state["active"] else "stop", unit]
+        result = run_command(command)
+        if result.returncode != 0:
+            raise UpdateError(f"cannot restore PPSPi unit runtime state: {unit}")
+
+
+def rooted(root: Path, path: Path) -> Path:
+    return root / path.as_posix().lstrip("/")
+
+
+def run_command(
+    command: list[str],
+    timeout: int = 120,
+    *,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    environment = {
+        "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+        "LC_ALL": "C",
+        "HOME": "/root",
+    }
+    if extra_env:
+        environment.update(extra_env)
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout,
+            env=environment,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise UpdateError(f"cannot run {command[0]}: {exc}") from exc
+
+
+def acquire_lock(path: Path) -> Any:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stream = path.open("a+", encoding="ascii")
+    try:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        stream.close()
+        raise UpdateError("another PPSPi application update operation is active") from exc
+    return stream
+
+
+def artifact_urls(repository: str, version: str) -> tuple[str, str, str]:
+    parse_version(version)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise UpdateError("configured application repository is invalid")
+    base = f"https://github.com/{repository}/releases/download/v{version}"
+    archive = f"ppspi-{version}-application.tar.gz"
+    manifest = f"{archive}.manifest.json"
+    return f"{base}/{archive}", f"{base}/{manifest}", f"{base}/{manifest}.minisig"
+
+
+def prepare(args: argparse.Namespace, temporary: Path) -> tuple[dict[str, Any], Path, Path]:
+    archive_path = temporary / f"ppspi-{args.version}-application.tar.gz"
+    manifest_path = temporary / f"{archive_path.name}.manifest.json"
+    signature_path = temporary / f"{manifest_path.name}.minisig"
+    if args.archive:
+        if not args.manifest or not args.signature:
+            raise UpdateError("local verification requires --archive, --manifest, and --signature")
+        bounded_local_copy(args.archive, archive_path, MAX_ARCHIVE_BYTES)
+        bounded_local_copy(args.manifest, manifest_path, MAX_MANIFEST_BYTES)
+        bounded_local_copy(args.signature, signature_path, MAX_SIGNATURE_BYTES)
+    else:
+        archive_url, manifest_url, signature_url = artifact_urls(args.repository, args.version)
+        fetch(manifest_url, manifest_path, MAX_MANIFEST_BYTES)
+        fetch(signature_url, signature_path, MAX_SIGNATURE_BYTES)
+    verify_signature(manifest_path, signature_path, args.public_key, minisign=args.minisign)
+    data = manifest_path.read_bytes()
+    manifest = load_manifest_bytes(
+        data,
+        expected_version=args.version,
+        expected_repository=args.repository,
+    )
+    if not args.archive:
+        fetch(archive_url, archive_path, MAX_ARCHIVE_BYTES)
+    staging = temporary / "staging"
+    validate_archive(archive_path, manifest, staging)
+    return manifest, archive_path, staging
+
+
+def preflight(
+    args: argparse.Namespace,
+    manifest: dict[str, Any],
+    origin: dict[str, Any],
+    previous_identity: dict[str, Any] | None = None,
+) -> None:
+    current = origin["version"]
+    target = manifest["version"]
+    if version_is_downgrade(current, target):
+        raise UpdateError("network application downgrades are forbidden; use local rollback")
+    if (
+        compatibility_series(current) != manifest["compatibility_series"]
+        and not args.allow_breaking
+    ):
+        raise UpdateError("target release is outside the installed compatibility series")
+    if target == current:
+        raise UpdateError(f"PPSPi {target} is already installed")
+    if origin["origin"] == "source" and not origin["adopted"] and not args.adopt_source_install:
+        raise UpdateError("source installation requires explicit --adopt-source-install")
+    if args.root == Path("/"):
+        architecture = platform.machine()
+        if architecture not in {"aarch64", "arm64"}:
+            raise UpdateError(f"unsupported application update architecture: {architecture}")
+        try:
+            os_release = Path("/etc/os-release").read_text(encoding="utf-8")
+        except OSError as exc:
+            raise UpdateError(f"cannot read operating-system identity: {exc}") from exc
+        if not any(
+            line in {"VERSION_CODENAME=trixie", 'VERSION_CODENAME="trixie"'}
+            for line in os_release.splitlines()
+        ):
+            raise UpdateError("application update requires Raspberry Pi OS/Debian Trixie")
+    usage = shutil.disk_usage(args.root)
+    snapshot_paths = {
+        entry["path"] for entry in manifest["payload"]
+    } | set(GENERATED_TRANSACTION_PATHS)
+    if previous_identity is not None:
+        snapshot_paths.update(previous_identity["managed_paths"])
+    snapshot_bytes = 0
+    for relative in snapshot_paths:
+        candidate = args.root / relative
+        if candidate.exists():
+            candidate_stat = candidate.lstat()
+            if not stat.S_ISREG(candidate_stat.st_mode):
+                raise UpdateError(f"managed application path is not a regular file: {relative}")
+            snapshot_bytes += candidate_stat.st_size
+    replacement_bytes = sum(entry["size"] for entry in manifest["payload"])
+    required = (
+        snapshot_bytes
+        + replacement_bytes
+        + manifest.get("archive", {}).get("size", 0)
+        + 1024 * 1024
+    )
+    if usage.free < required:
+        raise UpdateError("insufficient free space for staging and rollback snapshot")
+
+
+def service_validation(
+    root: Path,
+    payload: list[dict[str, Any]],
+    staging: Path | None = None,
+) -> None:
+    unit_names: set[str] = set()
+    for entry in payload:
+        relative = entry["path"]
+        if not relative.startswith("etc/systemd/system/"):
+            continue
+        unit_relative = relative.removeprefix("etc/systemd/system/")
+        if unit_relative.endswith((".service", ".timer")):
+            unit_names.add(Path(unit_relative).name)
+        elif ".service.d/" in unit_relative or ".timer.d/" in unit_relative:
+            unit_names.add(unit_relative.split(".d/", 1)[0])
+    if unit_names:
+        candidate = staging if staging is not None else root
+        candidate_units = candidate / "etc/systemd/system"
+        unit_path = ":".join(
+            str(path)
+            for path in (
+                candidate_units,
+                root / "etc/systemd/system",
+                root / "run/systemd/system",
+                root / "usr/local/lib/systemd/system",
+                root / "usr/lib/systemd/system",
+                Path("/usr/lib/systemd/system"),
+            )
+        )
+        result = run_command(
+            ["systemd-analyze", "verify", *sorted(unit_names)],
+            extra_env={"SYSTEMD_UNIT_PATH": unit_path},
+        )
+        if result.returncode != 0:
+            unresolved: list[str] = []
+            missing_command = re.compile(
+                r"Command (/[^ ]+) is not executable: No such file or directory$"
+            )
+            for line in result.stderr.splitlines():
+                missing_unit = re.search(r"Unit ([^ ]+) not found\.$", line)
+                if missing_unit is not None:
+                    unit = missing_unit.group(1)
+                    candidate_dropin = candidate_units / f"{unit}.d"
+                    target_unit_exists = any(
+                        (directory / unit).exists()
+                        for directory in (
+                            root / "etc/systemd/system",
+                            root / "usr/lib/systemd/system",
+                        )
+                    )
+                    if candidate_dropin.is_dir() and not target_unit_exists:
+                        continue
+                match = missing_command.search(line)
+                if match is None:
+                    unresolved.append(line)
+                    continue
+                executable = match.group(1).lstrip("/")
+                candidate_executable = candidate / executable
+                current_executable = root / executable
+                if not any(
+                    path.is_file() and os.access(path, os.X_OK)
+                    for path in (candidate_executable, current_executable)
+                ):
+                    unresolved.append(line)
+            if unresolved:
+                detail = unresolved[-1][:300]
+                raise UpdateError(
+                    f"updated systemd units failed validation: {detail}"
+                )
+
+
+def candidate_configuration_validation(root: Path, staging: Path) -> None:
+    configure = staging / "usr/lib/ppstime/configure-profile.py"
+    source_root = staging / "usr/share/ppstime"
+    config = root / "etc/ppstime/ppstime.env"
+    if not configure.is_file() or not source_root.is_dir() or not config.is_file():
+        raise UpdateError("candidate PPSPi configuration inputs are incomplete")
+    command = [
+        sys.executable,
+        str(configure),
+        "--source-root",
+        str(source_root),
+        "--root",
+        str(root),
+        "--config",
+        str(config),
+        "--validate-only",
+    ]
+    result = run_command(command)
+    if result.returncode != 0:
+        raise UpdateError("candidate PPSPi configuration is incompatible")
+
+
+def regenerate_configuration(root: Path) -> None:
+    configure = root / "usr/lib/ppstime/configure-profile.py"
+    config = root / "etc/ppstime/ppstime.env"
+    source_root = root / "usr/share/ppstime"
+    if not configure.is_file() or not config.is_file() or not source_root.is_dir():
+        raise UpdateError("updated PPSPi configuration inputs are incomplete")
+    command = [
+        sys.executable,
+        str(configure),
+        "--source-root",
+        str(source_root),
+        "--root",
+        str(root),
+        "--config",
+        str(config),
+    ]
+    result = run_command(command)
+    if result.returncode != 0:
+        raise UpdateError("updated PPSPi configuration generation failed")
+
+
+def activate(root: Path, *, validate_health: bool = True) -> None:
+    if root != Path("/"):
+        return
+    reload_result = run_command(["systemctl", "daemon-reload"])
+    if reload_result.returncode != 0:
+        raise UpdateError("systemd daemon reload failed")
+    restart = run_command(["systemctl", "try-restart", "chrony.service", "gpsd.service"])
+    if restart.returncode != 0:
+        raise UpdateError("PPSPi service restart failed")
+    if validate_health:
+        health = run_command(["/usr/lib/ppstime/ppstime-test", "--json"], timeout=180)
+        if health.returncode != 0:
+            raise UpdateError("post-update PPSPi validation failed")
+
+
+def apply_update(args: argparse.Namespace) -> int:
+    if os.geteuid() != 0 and not args.allow_non_root:
+        raise UpdateError("application update apply must run as root")
+    if not args.yes:
+        raise UpdateError("application update apply requires explicit --yes")
+    origin_path = rooted(args.root, args.origin)
+    state_path = rooted(args.root, args.state_file)
+    transactions = rooted(args.root, args.transactions_dir)
+    origin = read_origin(origin_path)
+    installed_identity_path = installation_path(args)
+    previous_identity = read_installation(installed_identity_path, missing_ok=True)
+    with tempfile.TemporaryDirectory(prefix="ppstime-update-") as temporary_name:
+        manifest, _, staging = prepare(args, Path(temporary_name))
+        identity = target_identity(args, manifest)
+        if manifest["version"] == origin["version"]:
+            if previous_identity is None:
+                raise UpdateError(
+                    "same-version application identity is unavailable; refusing to assume "
+                    "the artifact matches"
+                )
+            if previous_identity is not None and identity != previous_identity:
+                raise UpdateError(
+                    "same-version application artifact identity does not match "
+                    "the installed release"
+                )
+            if (
+                origin["git_commit"] is not None
+                and manifest["git_commit"] != origin["git_commit"]
+            ):
+                raise UpdateError(
+                    "same-version application artifact has a different Git commit"
+                )
+            print(f"PPSPi application {manifest['version']} is already installed")
+            return 0
+        preflight(args, manifest, origin, previous_identity)
+        service_validation(args.root, manifest["payload"], staging)
+        candidate_configuration_validation(args.root, staging)
+        transaction_id = (
+            f"{now_text().replace(':', '').replace('-', '')}-"
+            f"{secrets.token_hex(4)}-{manifest['version']}"
+        )
+        transaction_dir = transactions / transaction_id
+        snapshot = transaction_dir / "snapshot"
+        transaction_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
+        snapshot.mkdir(mode=0o700)
+        files: list[dict[str, Any]] = []
+        target_paths = {entry["path"] for entry in manifest["payload"]}
+        previous_paths = (
+            set(previous_identity["managed_paths"])
+            if previous_identity is not None
+            else set()
+        )
+        stale_paths = previous_paths - target_paths
+        snapshot_paths = list(sorted(target_paths | stale_paths))
+        snapshot_paths.extend(
+            path
+            for path in sorted(GENERATED_TRANSACTION_PATHS)
+            if path not in target_paths and path not in stale_paths
+        )
+        if len(snapshot_paths) > MAX_TRANSACTION_FILES:
+            raise UpdateError("update transaction file inventory is too large")
+        for relative in snapshot_paths:
+            destination = args.root / relative
+            existed = destination.exists()
+            destination_stat = destination.lstat() if existed else None
+            if destination_stat is not None and not stat.S_ISREG(destination_stat.st_mode):
+                raise UpdateError(
+                    f"managed application path is not a regular file: {relative}"
+                )
+            mode = stat.S_IMODE(destination_stat.st_mode) if destination_stat else 0o644
+            size = destination_stat.st_size if destination_stat else 0
+            digest = hashlib.sha256(b"").hexdigest()
+            if existed:
+                snapshot_path = snapshot / relative
+                durable_copy(destination, snapshot_path, mode)
+                digest = hashlib.sha256(snapshot_path.read_bytes()).hexdigest()
+            files.append(
+                {
+                    "path": relative,
+                    "existed": existed,
+                    "mode": mode,
+                    "size": size,
+                    "sha256": digest,
+                }
+            )
+        durable_tree(snapshot)
+        fsync_directory(transactions)
+        target_units = managed_unit_names(target_paths)
+        stale_units = managed_unit_names(stale_paths)
+        unit_states = capture_unit_states(args.root, target_units | stale_units)
+        transaction = {
+            "schema_version": 2,
+            "id": transaction_id,
+            "state": "PREPARED",
+            "from_version": origin["version"],
+            "from_commit": origin["git_commit"],
+            "from_adopted": origin["adopted"],
+            "to_version": manifest["version"],
+            "to_commit": manifest["git_commit"],
+            "created_utc": now_text(),
+            "files": files,
+            "previous_identity": previous_identity,
+            "unit_states": unit_states,
+        }
+        transaction_path = transaction_dir / "transaction.json"
+        atomic_json(transaction_path, transaction)
+        transaction["state"] = "APPLYING"
+        atomic_json(transaction_path, transaction)
+        try:
+            for entry in manifest["payload"]:
+                relative = entry["path"]
+                source = staging / relative
+                destination = args.root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                descriptor, temporary_file_name = tempfile.mkstemp(
+                    prefix=f".{destination.name}.", dir=destination.parent
+                )
+                temporary_file = Path(temporary_file_name)
+                try:
+                    with os.fdopen(descriptor, "wb") as output, source.open("rb") as input_stream:
+                        shutil.copyfileobj(input_stream, output)
+                        os.fchmod(output.fileno(), entry["mode"])
+                        output.flush()
+                        os.fsync(output.fileno())
+                    os.replace(temporary_file, destination)
+                    directory_fd = os.open(
+                        destination.parent,
+                        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+                    )
+                    try:
+                        os.fsync(directory_fd)
+                    finally:
+                        os.close(directory_fd)
+                finally:
+                    temporary_file.unlink(missing_ok=True)
+            for relative in sorted(stale_paths):
+                durable_unlink(args.root / relative, missing_ok=True)
+            regenerate_configuration(args.root)
+            reconcile_units(args.root, target_units, stale_units, unit_states)
+            activate(args.root)
+            origin["version"] = manifest["version"]
+            origin["git_commit"] = manifest["git_commit"]
+            if args.adopt_source_install:
+                origin["adopted"] = True
+            if identity is not None:
+                atomic_json(installed_identity_path, identity)
+            atomic_json(origin_path, origin)
+            atomic_json(
+                state_path,
+                {
+                    "schema_version": 1,
+                    "installed_version": manifest["version"],
+                    "installed_commit": manifest["git_commit"],
+                    "install_origin": origin["origin"],
+                    "last_action": "apply",
+                    "transaction": transaction_id,
+                },
+            )
+            transaction["state"] = "COMMITTED"
+            atomic_json(transaction_path, transaction)
+        except (OSError, UpdateError):
+            transaction["state"] = "ROLLING_BACK"
+            atomic_json(transaction_path, transaction)
+            quiesce_new_units(args.root, unit_states)
+            restore_transaction(args.root, transaction_dir, transaction)
+            restore_installation_identity(installed_identity_path, previous_identity)
+            restore_unit_states(args.root, unit_states)
+            try:
+                activate(args.root, validate_health=False)
+            except UpdateError as exc:
+                raise UpdateError(
+                    "application update failed and rollback service activation failed; "
+                    "boot recovery is required"
+                ) from exc
+            else:
+                origin["version"] = transaction["from_version"]
+                origin["git_commit"] = transaction["from_commit"]
+                origin["adopted"] = transaction["from_adopted"]
+                atomic_json(origin_path, origin)
+                atomic_json(
+                    state_path,
+                    {
+                        "schema_version": 1,
+                        "installed_version": transaction["from_version"],
+                        "installed_commit": transaction["from_commit"],
+                        "install_origin": origin["origin"],
+                        "last_action": "failed_rolled_back",
+                        "transaction": transaction_id,
+                    },
+                )
+                transaction["state"] = "ROLLED_BACK"
+                atomic_json(transaction_path, transaction)
+            raise
+    print(f"PPSPi application updated to {args.version}")
+    return 0
+
+
+def check_update(args: argparse.Namespace) -> int:
+    origin = read_origin(rooted(args.root, args.origin))
+    previous_identity = read_installation(installation_path(args), missing_ok=True)
+    with tempfile.TemporaryDirectory(prefix="ppstime-update-check-") as temporary_name:
+        manifest, _, _ = prepare(args, Path(temporary_name))
+    identity = target_identity(args, manifest)
+    if manifest["version"] == origin["version"]:
+        if previous_identity is None:
+            raise UpdateError(
+                "same-version application identity is unavailable; refusing to assume "
+                "the artifact matches"
+            )
+        if previous_identity is not None and identity != previous_identity:
+            raise UpdateError(
+                "same-version application artifact identity does not match the installed release"
+            )
+        if (
+            origin["git_commit"] is not None
+            and manifest["git_commit"] != origin["git_commit"]
+        ):
+            raise UpdateError(
+                "same-version application artifact has a different Git commit"
+            )
+        print(
+            json.dumps(
+                {
+                    "current_version": origin["version"],
+                    "target_version": manifest["version"],
+                    "compatibility_series": manifest["compatibility_series"],
+                    "verified": True,
+                    "update_required": False,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    preflight(args, manifest, origin, previous_identity)
+    print(
+        json.dumps(
+            {
+                "current_version": origin["version"],
+                "target_version": manifest["version"],
+                "compatibility_series": manifest["compatibility_series"],
+                "verified": True,
+                "update_required": True,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def status(args: argparse.Namespace) -> int:
+    origin = read_origin(rooted(args.root, args.origin))
+    state_path = rooted(args.root, args.state_file)
+    state = None
+    if state_path.exists():
+        state = json.loads(state_path.read_text(encoding="ascii"))
+        state_keys = {
+            "schema_version",
+            "installed_version",
+            "installed_commit",
+            "install_origin",
+            "last_action",
+            "transaction",
+        }
+        if not isinstance(state, dict) or set(state) != state_keys:
+            raise UpdateError("application update state schema is invalid")
+    print(json.dumps({"origin": origin, "state": state}, indent=2, sort_keys=True))
+    return 0
+
+
+def find_transaction(transactions: Path, states: set[str]) -> tuple[Path, dict[str, Any]]:
+    candidates: list[tuple[Path, dict[str, Any]]] = []
+    if transactions.exists():
+        for path in transactions.iterdir():
+            transaction_path = path / "transaction.json"
+            if transaction_path.is_file():
+                transaction = load_transaction(transaction_path)
+                if transaction["state"] in states:
+                    candidates.append((path, transaction))
+    if not candidates:
+        raise UpdateError("no eligible local application update transaction exists")
+    return sorted(candidates, key=lambda item: item[0].name)[-1]
+
+
+def rollback(args: argparse.Namespace, *, recovery: bool = False) -> int:
+    if os.geteuid() != 0 and not args.allow_non_root:
+        raise UpdateError("application update rollback must run as root")
+    if not recovery and not args.yes:
+        raise UpdateError("application update rollback requires explicit --yes")
+    transactions = rooted(args.root, args.transactions_dir)
+    states = {"PREPARED", "APPLYING", "ROLLING_BACK"} if recovery else {"COMMITTED"}
+    try:
+        transaction_dir, transaction = find_transaction(transactions, states)
+    except UpdateError:
+        if recovery:
+            print("No interrupted PPSPi application update requires recovery")
+            return 0
+        raise
+    transaction["state"] = "ROLLING_BACK"
+    atomic_json(transaction_dir / "transaction.json", transaction)
+    if transaction["schema_version"] >= 2:
+        quiesce_new_units(args.root, transaction["unit_states"])
+    restore_transaction(args.root, transaction_dir, transaction)
+    if transaction["schema_version"] >= 2:
+        restore_installation_identity(
+            installation_path(args), transaction["previous_identity"]
+        )
+        restore_unit_states(args.root, transaction["unit_states"])
+    activate(args.root, validate_health=not recovery)
+    origin_path = rooted(args.root, args.origin)
+    origin = read_origin(origin_path)
+    origin["version"] = transaction["from_version"]
+    origin["git_commit"] = transaction["from_commit"]
+    origin["adopted"] = transaction["from_adopted"]
+    atomic_json(origin_path, origin)
+    atomic_json(
+        rooted(args.root, args.state_file),
+        {
+            "schema_version": 1,
+            "installed_version": transaction["from_version"],
+            "installed_commit": origin["git_commit"],
+            "install_origin": origin["origin"],
+            "last_action": "recover" if recovery else "rollback",
+            "transaction": transaction["id"],
+        },
+    )
+    transaction["state"] = "RECOVERED" if recovery else "ROLLED_BACK"
+    atomic_json(transaction_dir / "transaction.json", transaction)
+    action = "recovered" if recovery else "rolled back"
+    print(f"PPSPi application {action} to {transaction['from_version']}")
+    return 0
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("check", "apply", "status", "rollback", "recover"))
+    parser.add_argument("--version", help="explicit target semantic version")
+    parser.add_argument("--repository", default=DEFAULT_REPOSITORY)
+    parser.add_argument("--public-key", type=Path, default=DEFAULT_PUBLIC_KEY)
+    parser.add_argument("--archive", type=Path)
+    parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--signature", type=Path)
+    parser.add_argument("--adopt-source-install", action="store_true")
+    parser.add_argument("--allow-breaking", action="store_true")
+    parser.add_argument("--yes", action="store_true")
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help=argparse.SUPPRESS)
+    parser.add_argument("--origin", type=Path, default=DEFAULT_ORIGIN, help=argparse.SUPPRESS)
+    parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--installation-file",
+        type=Path,
+        default=DEFAULT_INSTALLATION,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--transactions-dir",
+        type=Path,
+        default=DEFAULT_TRANSACTIONS,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument("--lock-file", type=Path, default=DEFAULT_LOCK, help=argparse.SUPPRESS)
+    parser.add_argument("--root", type=Path, default=Path("/"), help=argparse.SUPPRESS)
+    parser.add_argument("--minisign", default="minisign", help=argparse.SUPPRESS)
+    parser.add_argument("--allow-non-root", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--skip-lock", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.action in {"check", "apply"} and not args.version:
+        parser.error(f"{args.action} requires --version")
+    if args.version and args.action not in {"check", "apply"}:
+        parser.error("--version is valid only with check or apply")
+    if args.version:
+        try:
+            parse_version(args.version)
+        except UpdateError as exc:
+            parser.error(str(exc))
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repository):
+        parser.error("--repository must be OWNER/REPOSITORY")
+    args.root = args.root.resolve()
+    return args
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        lock_path = rooted(args.root, args.lock_file)
+        lock_context = contextlib.nullcontext() if args.skip_lock else acquire_lock(lock_path)
+        with lock_context:
+            if args.action == "check":
+                return check_update(args)
+            if args.action == "apply":
+                return apply_update(args)
+            if args.action == "status":
+                return status(args)
+            return rollback(args, recovery=args.action == "recover")
+    except (ConfigError, UpdateError, OSError, json.JSONDecodeError) as exc:
+        print(f"ppstime-update: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

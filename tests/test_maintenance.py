@@ -61,6 +61,7 @@ class MaintenanceTests(unittest.TestCase):
             tracking_command=["tracking"],
             rtc_command=["rtc"],
             reboot_command=["reboot"],
+            application_update_command=["application-update"],
             deep_test_command=["deep"],
             health_command=["health"],
             allow_non_root=True,
@@ -307,6 +308,78 @@ class MaintenanceTests(unittest.TestCase):
             with patch.object(module, "run_command") as run:
                 self.assertEqual(module.run_maintenance(args), 0)
             run.assert_not_called()
+
+    def test_enabled_application_update_uses_only_explicit_configured_version(self) -> None:
+        module = load_module()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            args = self.args(root)
+            config = dict(
+                self.config,
+                OS_UPDATES_ENABLED="false",
+                APP_UPDATES_ENABLED="true",
+                APP_UPDATE_VERSION="0.2.1",
+            )
+            args.config.write_text(config_to_env(config), encoding="utf-8")
+            calls: list[list[str]] = []
+
+            def run(command: list[str], timeout: int = 0) -> subprocess.CompletedProcess[str]:
+                calls.append(command)
+                return self.completed()
+
+            with patch.object(module, "run_command", side_effect=run):
+                self.assertEqual(module.run_maintenance(args), 0)
+            self.assertEqual(
+                calls,
+                [
+                    ["audit"],
+                    [
+                        "application-update",
+                        "apply",
+                        "--version",
+                        "0.2.1",
+                        "--yes",
+                        "--skip-lock",
+                    ],
+                ],
+            )
+            self.assertIn(
+                [
+                    "application-update",
+                    "apply",
+                    "--version",
+                    "0.2.1",
+                    "--yes",
+                    "--skip-lock",
+                ],
+                calls,
+            )
+            self.assertNotIn(["update"], calls)
+            self.assertNotIn(["upgrade"], calls)
+
+    def test_os_then_audit_then_application_update_order(self) -> None:
+        module = load_module()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            args = self.args(root)
+            config = dict(
+                self.config,
+                OS_UPDATES_ENABLED="true",
+                APP_UPDATES_ENABLED="true",
+                APP_UPDATE_VERSION="0.2.1",
+            )
+            args.config.write_text(config_to_env(config), encoding="utf-8")
+            calls: list[str] = []
+
+            def run(
+                command: list[str], timeout: int = 0
+            ) -> subprocess.CompletedProcess[str]:
+                calls.append(command[0])
+                return self.completed()
+
+            with patch.object(module, "run_command", side_effect=run):
+                self.assertEqual(module.run_maintenance(args), 0)
+            self.assertEqual(calls, ["update", "upgrade", "audit", "application-update"])
 
     def test_package_lock_timeout_is_bounded(self) -> None:
         module = load_module()

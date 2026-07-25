@@ -184,6 +184,11 @@ On `0.2.0-dev`, signed OS security updates run in a weekly maintenance window
 and reboot only when the OS requires it and package/RTC preflight passes. See
 [unattended OS maintenance](docs/maintenance.md).
 
+Verified PPSPi application updates are separately opt-in, require an exact
+same-compatibility-series version and a configured minisign public key, and
+retain a local transactional rollback. See
+[verified application updates and rollback](docs/application-updates.md).
+
 `ppstime-health` and the passive stateful monitor are available on the current
 `0.2.0-dev` development branch; they are not included in the published v0.1.0
 image. On a `0.2.0-dev` installation, inspect confirmed appliance health and
@@ -253,6 +258,8 @@ See the [release process](docs/release-process.md) for the exact gates.
 - generated configuration uses least-privilege file modes;
 - diagnostics are scoped and sanitised;
 - standard Raspberry Pi OS package signing and updates remain intact.
+- PPSPi application updates disabled until an explicit version and minisign
+  public key are configured.
 
 Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 
@@ -287,6 +294,7 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - [Host health monitoring](docs/host-health.md)
 - [Configuration backup and disaster recovery](docs/backup-restore.md)
 - [Unattended OS maintenance](docs/maintenance.md)
+- [Verified application updates](docs/application-updates.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Hardware acceptance plan](docs/hardware-test-plan.md)
 - [v0.1.0 hardware report](docs/hardware-test-report-v0.1.0.md)

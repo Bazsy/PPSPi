@@ -1,18 +1,25 @@
 from __future__ import annotations
 
+import importlib.machinery
 import math
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
+from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+CONFIG_COMMAND = PROJECT_ROOT / "files" / "ppstime" / "ppstime-config"
 sys.path.insert(0, str(PROJECT_ROOT / "files" / "ppstime"))
 
 from ppstime_core import (
     CONFIG_KEYS,
     ConfigError,
+    config_to_env,
     load_config,
+    maintenance_enabled,
     model_is_supported,
     parse_env_file,
     validate_config,
@@ -22,6 +29,14 @@ from ppstime_core import (
 class ConfigTests(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config(PROJECT_ROOT, environ={})
+
+    def load_config_command(self) -> ModuleType:
+        loader = importlib.machinery.SourceFileLoader(
+            "ppstime_config_command", str(CONFIG_COMMAND)
+        )
+        module = ModuleType(loader.name)
+        loader.exec_module(module)
+        return module
 
     def test_uputronics_values_are_source_verified_defaults(self) -> None:
         self.assertEqual(self.config["PPS_GPIO"], "18")
@@ -59,6 +74,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(self.config["OS_MAINTENANCE_DAY"], "Sun")
         self.assertEqual(self.config["OS_MAINTENANCE_TIME"], "04:00")
         self.assertEqual(self.config["OS_MAINTENANCE_TIMEZONE"], "UTC")
+        self.assertEqual(self.config["APP_UPDATES_ENABLED"], "false")
+        self.assertEqual(self.config["APP_UPDATE_VERSION"], "")
         invalid_cases = (
             {"OS_UPDATE_SCOPE": "everything"},
             {"OS_MAINTENANCE_DAY": "Sunday"},
@@ -66,6 +83,8 @@ class ConfigTests(unittest.TestCase):
             {"OS_MAINTENANCE_TIMEZONE": "../UTC"},
             {"OS_MAINTENANCE_RANDOM_DELAY_MINUTES": "361"},
             {"OS_REBOOT_ENABLED": "yes"},
+            {"APP_UPDATES_ENABLED": "yes"},
+            {"APP_UPDATE_VERSION": "latest"},
         )
         for changes in invalid_cases:
             with self.subTest(changes=changes), self.assertRaises(ConfigError):
@@ -73,10 +92,81 @@ class ConfigTests(unittest.TestCase):
         validate_config(
             dict(self.config, OS_MAINTENANCE_TIMEZONE="Europe/Stockholm")
         )
+        validate_config(dict(self.config, APP_UPDATE_VERSION="0.2.1"))
+        validate_config(dict(self.config, APP_UPDATE_VERSION="0.2.1-rc.1+build.7"))
+        for invalid_version in ("1.0.0-01", "1.0.0-alpha.01", "1.0.0+"):
+            with self.subTest(invalid_version=invalid_version), self.assertRaises(ConfigError):
+                validate_config(
+                    dict(self.config, APP_UPDATE_VERSION=invalid_version)
+                )
+        with self.assertRaises(ConfigError):
+            validate_config(dict(self.config, APP_UPDATES_ENABLED="true"))
         with self.assertRaises(ConfigError):
             validate_config(
                 dict(self.config, OS_MAINTENANCE_TIMEZONE="Europe/NotARealZone")
             )
+
+    def test_maintenance_timer_policy_covers_all_boolean_combinations(self) -> None:
+        for os_enabled in ("false", "true"):
+            for app_enabled in ("false", "true"):
+                with self.subTest(os=os_enabled, app=app_enabled):
+                    config = dict(
+                        self.config,
+                        OS_UPDATES_ENABLED=os_enabled,
+                        APP_UPDATES_ENABLED=app_enabled,
+                        APP_UPDATE_VERSION="0.2.1" if app_enabled == "true" else "",
+                    )
+                    self.assertEqual(
+                        maintenance_enabled(config),
+                        os_enabled == "true" or app_enabled == "true",
+                    )
+
+    def test_config_apply_reconciles_timer_for_all_boolean_combinations(self) -> None:
+        for os_enabled in ("false", "true"):
+            for app_enabled in ("false", "true"):
+                with self.subTest(
+                    os=os_enabled, app=app_enabled
+                ), tempfile.TemporaryDirectory() as temporary:
+                    module = self.load_config_command()
+                    config_path = Path(temporary) / "ppstime.env"
+                    config = dict(
+                        self.config,
+                        OS_UPDATES_ENABLED=os_enabled,
+                        APP_UPDATES_ENABLED=app_enabled,
+                        APP_UPDATE_VERSION="0.2.1" if app_enabled == "true" else "",
+                    )
+                    config_path.write_text(config_to_env(config), encoding="utf-8")
+                    calls: list[list[str]] = []
+
+                    def run(
+                        command: list[str],
+                        *_run_args: object,
+                        call_log: list[list[str]] = calls,
+                        **_kwargs: object,
+                    ) -> subprocess.CompletedProcess[str]:
+                        call_log.append(command)
+                        return subprocess.CompletedProcess(command, 0, "", "")
+
+                    with patch.object(
+                        sys,
+                        "argv",
+                        ["ppstime-config", "--config", str(config_path), "apply"],
+                    ), patch.object(module.os, "geteuid", return_value=0), patch.object(
+                        module.subprocess, "run", side_effect=run
+                    ):
+                        self.assertEqual(module.main(), 0)
+                    expected_operation = (
+                        "enable"
+                        if os_enabled == "true" or app_enabled == "true"
+                        else "disable"
+                    )
+                    timer_calls = [
+                        command
+                        for command in calls
+                        if "ppstime-maintenance.timer" in command
+                    ]
+                    self.assertEqual(len(timer_calls), 1)
+                    self.assertEqual(timer_calls[0][1], expected_operation)
 
     def test_active_configuration_has_no_secret_keys(self) -> None:
         sensitive = ("PASSWORD", "SECRET", "TOKEN", "PRIVATE", "WIFI", "SSID", "KEY")

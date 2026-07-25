@@ -14,11 +14,11 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-SEMVER_RE = re.compile(
-    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
-    r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
-    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
-)
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "files" / "ppstime"))
+
+from ppstime_core import semantic_version_is_valid  # noqa: E402
+
 CHUNK_SIZE = 1024 * 1024
 OS_ICON = "https://downloads.raspberrypi.com/raspios_armhf/Raspberry_Pi_OS_(32-bit).png"
 DEVICE_ICON = "https://downloads.raspberrypi.com/imager/icons/RPi_4.png"
@@ -45,7 +45,7 @@ def load_build_info(path: Path) -> tuple[str, str]:
         die("missing build metadata: " + ", ".join(missing))
 
     version = metadata["project_version"]
-    if not isinstance(version, str) or not SEMVER_RE.fullmatch(version):
+    if not isinstance(version, str) or not semantic_version_is_valid(version):
         die("build metadata project_version is not valid semantic versioning")
     if metadata["raspberry_pi_os_release"] != "trixie":
         die("build metadata must identify Raspberry Pi OS Trixie")

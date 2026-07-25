@@ -3,9 +3,11 @@ set -Eeuo pipefail
 
 install -d -m 0755 "${ROOTFS_DIR}/opt/ppspi-source"
 tar -xzf files/ppspi-source.tar.gz -C "${ROOTFS_DIR}/opt/ppspi-source"
+install -D -m 0644 files/build-info.json "${ROOTFS_DIR}/opt/ppspi-build-info.json"
 
 on_chroot << 'EOF'
-/opt/ppspi-source/scripts/install.sh --skip-packages
+/opt/ppspi-source/scripts/install.sh --skip-packages --install-origin image \
+	--build-info /opt/ppspi-build-info.json
 
 # Raspberry Pi cloud-init 25.2-1~bpo13+1+rpt20 lists this final module but does
 # not ship it. Remove the stale entry only while the import is unavailable so a
@@ -19,3 +21,4 @@ EOF
 
 install -D -m 0644 files/build-info.json "${ROOTFS_DIR}/etc/ppstime/build-info.json"
 rm -rf "${ROOTFS_DIR}/opt/ppspi-source"
+rm -f "${ROOTFS_DIR}/opt/ppspi-build-info.json"

@@ -18,7 +18,9 @@ Maintainers should configure:
 6. a GitHub environment named `release` with a required reviewer when another
     trusted maintainer is available;
 7. GitHub private vulnerability reporting;
-8. Actions permissions that allow the release workflow's `contents: write`.
+8. Actions permissions that allow the release workflow's `contents: write`;
+9. the protected `MINISIGN_SECRET_KEY` release-environment secret matching the
+    public key committed at `files/application-update.pub`.
 
 Do not require one pull-request approval until another maintainer can review:
 GitHub does not allow an author to approve their own pull request. Once a
@@ -36,7 +38,10 @@ access token secret for normal releases.
 
 ## Version preparation
 
-PPSPi uses Semantic Versioning. Prepare a release pull request that:
+PPSPi uses strict Semantic Versioning 2.0.0, including rejection of leading
+zeroes in numeric prerelease identifiers and support for build metadata. The
+same validator is used by configuration, image/release packaging, release asset
+validation, and the release workflow. Prepare a release pull request that:
 
 1. changes `VERSION` from a development identifier to the exact release version,
    for example `0.1.0`;
@@ -101,12 +106,24 @@ and explicitly attaches only:
 - `ppspi-<version>-raspios-trixie-arm64.img.xz`;
 - its `.sha256` file;
 - `build-info.json`;
-- `ppspi-<version>-raspios-trixie-arm64.rpi-imager-manifest`.
+- `ppspi-<version>-raspios-trixie-arm64.rpi-imager-manifest`;
+- `ppspi-<version>-application.tar.gz`;
+- its canonical `.manifest.json`;
+- its `.manifest.json.minisig` signature.
+
+The release job fails closed when signing configuration is absent. Keep the
+secret key offline except for the protected release environment and install only
+the public key in future production images. The trigger remains exclusively
+`release.published`; application packaging adds no push, tag, or manual
+publication path.
 
 Publishing makes the release visible before the long image build finishes. Add
-a release note that assets are building, then verify all four attachments and
-their checksums when the workflow completes. A failed workflow can be re-run;
-asset upload uses `--clobber` for that tag.
+a release note that assets are building, then verify all seven attachments and
+their checksums when the workflow completes. Release assets are immutable: the
+workflow never uses `--clobber`, and an existing same-name asset makes upload
+fail. A failure before any upload may be re-run. If a failure leaves one or more
+assets attached, do not replace them under the same version; diagnose the
+failure and publish a new patch version/tag after review.
 
 ## Post-release checks
 

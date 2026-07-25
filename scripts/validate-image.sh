@@ -83,6 +83,8 @@ sudo jq -e \
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-backup" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-host-health" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-maintenance" ]]
+[[ -x "${root_mount}/usr/lib/ppstime/ppstime-update" ]]
+[[ -x "${root_mount}/usr/bin/minisign" ]]
 [[ -x "${root_mount}/usr/bin/unattended-upgrade" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-health" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-healthcheck" ]]
@@ -90,6 +92,7 @@ sudo jq -e \
 [[ -L "${root_mount}/usr/local/sbin/ppstime-backup" ]]
 [[ "$(sudo readlink "${root_mount}/usr/local/sbin/ppstime-backup")" == "/usr/lib/ppstime/ppstime-backup" ]]
 [[ -L "${root_mount}/usr/local/sbin/ppstime-host-health" ]]
+[[ -L "${root_mount}/usr/local/sbin/ppstime-update" ]]
 [[ "$(sudo readlink "${root_mount}/usr/local/sbin/ppstime-host-health")" == "/usr/lib/ppstime/ppstime-host-health" ]]
 [[ "$(sudo readlink "${root_mount}/usr/local/sbin/ppstime-health")" == "/usr/lib/ppstime/ppstime-health" ]]
 [[ -f "${root_mount}/etc/systemd/system/ppstime-healthcheck.service" ]]
@@ -98,6 +101,21 @@ sudo jq -e \
 [[ -f "${root_mount}/etc/systemd/system/ppstime-maintenance.timer" ]]
 [[ -f "${root_mount}/etc/systemd/system/ppstime-maintenance-post-boot.service" ]]
 [[ -f "${root_mount}/etc/systemd/system/ppstime-maintenance-post-boot.timer" ]]
+[[ -f "${root_mount}/etc/systemd/system/ppstime-update-recovery.service" ]]
+sudo grep -Fqx 'untrusted comment: minisign public key 8D0124C5DC5CE411' \
+    "${root_mount}/usr/share/ppstime/application-update.pub"
+sudo grep -Fqx 'RWQR5FzcxSQBjZw/omXmYAhEoHrddPvXHiHH3l8PdcqkU7vNK0FVZWyn' \
+    "${root_mount}/usr/share/ppstime/application-update.pub"
+sudo jq -e \
+    '.schema_version == 1 and .origin == "image" and .adopted == false and
+     (.git_commit | test("^[0-9a-f]{40}$"))' \
+    "${root_mount}/var/lib/ppstime/install-origin.json" > /dev/null
+sudo jq -e \
+    '.schema_version == 1 and .repository == "Bazsy/PPSPi" and
+     (.git_commit | test("^[0-9a-f]{40}$")) and
+     (.managed_paths | index("usr/lib/ppstime/ppstime-update")) and
+     (.managed_paths | index("etc/systemd/system/ppstime-update-recovery.service"))' \
+    "${root_mount}/var/lib/ppstime/application-installation.json" > /dev/null
 [[ -f "${root_mount}/etc/apt/apt.conf.d/52ppstime-unattended-upgrades" ]]
 APT_CONFIG="${root_mount}/etc/apt/apt.conf.d/52ppstime-unattended-upgrades" \
     apt-config dump > /dev/null
@@ -185,6 +203,15 @@ post_boot_timer_state="$(
         "${post_boot_timer_state:-unknown}" >&2
     exit 1
 }
+update_recovery_state="$(
+    sudo systemctl --root="${root_mount}" is-enabled ppstime-update-recovery.service \
+        2> /dev/null || true
+)"
+[[ "${update_recovery_state}" == "enabled" ]] || {
+    printf 'PPSPi image validation error: update recovery state is %s, expected enabled\n' \
+        "${update_recovery_state:-unknown}" >&2
+    exit 1
+}
 for apt_timer in apt-daily.timer apt-daily-upgrade.timer; do
     apt_timer_state="$(
         sudo systemctl --root="${root_mount}" is-enabled "${apt_timer}" \
@@ -199,6 +226,8 @@ done
 [[ "$(sudo stat -c '%a' "${root_mount}/etc/ppstime/ppstime.env")" == "644" ]]
 sudo grep -Fxq 'HOST_DISK_WARNING_PERCENT=15.0' \
     "${root_mount}/etc/ppstime/ppstime.env"
+sudo grep -Fxq 'APP_UPDATES_ENABLED=false' "${root_mount}/etc/ppstime/ppstime.env"
+sudo grep -Fxq 'APP_UPDATE_VERSION=' "${root_mount}/etc/ppstime/ppstime.env"
 sudo grep -qx \
     'dtoverlay=i2c-rtc,rv3028,backup-switchover-mode=3' \
     "${root_mount}/boot/firmware/config.txt"

@@ -30,12 +30,12 @@ jobs:
         env:
           TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
-          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
           version="${TAG_NAME#v}"
-          [[ "${TAG_NAME}" == v* && "${version}" =~ ${semver} ]] || {
+          if [[ "${TAG_NAME}" != v* ]] || \
+            ! python3 scripts/validate-semver.py "${version}"; then
             echo "Release tag must be v<semantic-version>: ${TAG_NAME}" >&2
             exit 1
-          }
+          fi
           committed_version="$(tr -d '[:space:]' < VERSION)"
           [[ "${version}" == "${committed_version}" ]] || {
             echo "Tag ${version} does not match VERSION (${committed_version})" >&2
@@ -56,7 +56,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            binfmt-support qemu-user-binfmt
+            binfmt-support qemu-user-binfmt minisign
 
       - name: Register arm64 emulation
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8  # v4.2.0
@@ -87,6 +87,24 @@ jobs:
       - name: Validate built release image
         run: ./scripts/validate-image.sh artifacts/*.img.xz
 
+      - name: Build signed application update
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          test -n "${MINISIGN_SECRET_KEY}" || {
+            echo "MINISIGN_SECRET_KEY is not configured" >&2
+            exit 1
+          }
+          printf '%s\n' "${MINISIGN_SECRET_KEY}" > "${RUNNER_TEMP}/ppspi-update.key"
+          chmod 0600 "${RUNNER_TEMP}/ppspi-update.key"
+          python3 scripts/package-application-update.py \
+            --version "${VERSION}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --git-commit "$(git rev-parse HEAD)" \
+            --output-dir artifacts \
+            --secret-key "${RUNNER_TEMP}/ppspi-update.key"
+
       - name: Validate exact release assets
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -97,7 +115,13 @@ jobs:
             --version "${VERSION}" \
             --tag "${TAG_NAME}" \
             --repository "${GITHUB_REPOSITORY}" \
-            --expected-commit "$(git rev-parse HEAD)"
+            --expected-commit "$(git rev-parse HEAD)" \
+            --require-application-update \
+            --application-public-key files/application-update.pub
+
+      - name: Remove application signing key
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/ppspi-update.key"
 
       - name: Attach assets to the published GitHub Release
         env:
@@ -110,4 +134,6 @@ jobs:
             "artifacts/ppspi-${VERSION}-raspios-trixie-arm64.img.xz.sha256" \
             "artifacts/build-info.json" \
             "artifacts/ppspi-${VERSION}-raspios-trixie-arm64.rpi-imager-manifest" \
-            --clobber
+            "artifacts/ppspi-${VERSION}-application.tar.gz" \
+            "artifacts/ppspi-${VERSION}-application.tar.gz.manifest.json" \
+            "artifacts/ppspi-${VERSION}-application.tar.gz.manifest.json.minisig"
