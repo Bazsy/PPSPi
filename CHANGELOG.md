@@ -24,6 +24,10 @@ All notable changes are documented here. PPSPi follows
   strict allow-listed archive parsing, install-origin adoption, transactional
   per-file snapshots, boot recovery, local rollback, scheduled same-series
   maintenance integration, diagnostics, and release-asset validation.
+- optional, default-disabled read-only local dashboard using only the Python
+  standard library and exact local assets, with a separate health sampler,
+  bounded sanitized SQLite history, responsive fixture-driven UI, strict
+  private bind/CIDR controls, and hardened systemd services.
 
 ### Security
 
@@ -31,6 +35,9 @@ All notable changes are documented here. PPSPi follows
 - persisted signed release identity and exact managed-file inventory;
 - staged systemd candidate validation, bounded HTTPS redirects/local artifacts,
   strict shared SemVer validation, and immutable release asset names.
+- GET/HEAD-only dashboard routing, closed response schema, read-only HTTP-side
+  database access, security headers, peer-CIDR enforcement, rate/concurrency
+  limits, and no command, raw-data, administrative, or external-request path.
 
 ## 0.1.0 - 2026-07-22
 

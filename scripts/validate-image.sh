@@ -84,6 +84,7 @@ sudo jq -e \
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-host-health" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-maintenance" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-update" ]]
+[[ -x "${root_mount}/usr/lib/ppstime/ppstime-dashboard" ]]
 [[ -x "${root_mount}/usr/bin/minisign" ]]
 [[ -x "${root_mount}/usr/bin/unattended-upgrade" ]]
 [[ -x "${root_mount}/usr/lib/ppstime/ppstime-health" ]]
@@ -102,6 +103,12 @@ sudo jq -e \
 [[ -f "${root_mount}/etc/systemd/system/ppstime-maintenance-post-boot.service" ]]
 [[ -f "${root_mount}/etc/systemd/system/ppstime-maintenance-post-boot.timer" ]]
 [[ -f "${root_mount}/etc/systemd/system/ppstime-update-recovery.service" ]]
+[[ -f "${root_mount}/etc/systemd/system/ppstime-dashboard.service" ]]
+[[ -f "${root_mount}/etc/systemd/system/ppstime-dashboard-sample.service" ]]
+[[ -f "${root_mount}/etc/systemd/system/ppstime-dashboard-sample.timer" ]]
+for dashboard_asset in index.html dashboard.css dashboard.js ppspi.svg; do
+    [[ -f "${root_mount}/usr/share/ppstime/dashboard/${dashboard_asset}" ]]
+done
 sudo grep -Fqx 'untrusted comment: minisign public key 8D0124C5DC5CE411' \
     "${root_mount}/usr/share/ppstime/application-update.pub"
 sudo grep -Fqx 'RWQR5FzcxSQBjZw/omXmYAhEoHrddPvXHiHH3l8PdcqkU7vNK0FVZWyn' \
@@ -114,7 +121,10 @@ sudo jq -e \
     '.schema_version == 1 and .repository == "Bazsy/PPSPi" and
      (.git_commit | test("^[0-9a-f]{40}$")) and
      (.managed_paths | index("usr/lib/ppstime/ppstime-update")) and
-     (.managed_paths | index("etc/systemd/system/ppstime-update-recovery.service"))' \
+    (.managed_paths | index("etc/systemd/system/ppstime-update-recovery.service")) and
+    (.managed_paths | index("usr/lib/ppstime/ppstime-dashboard")) and
+    (.managed_paths | index("usr/share/ppstime/dashboard/index.html")) and
+    (.managed_paths | index("etc/systemd/system/ppstime-dashboard.service"))' \
     "${root_mount}/var/lib/ppstime/application-installation.json" > /dev/null
 [[ -f "${root_mount}/etc/apt/apt.conf.d/52ppstime-unattended-upgrades" ]]
 APT_CONFIG="${root_mount}/etc/apt/apt.conf.d/52ppstime-unattended-upgrades" \
@@ -173,8 +183,25 @@ sudo grep -Fxq 'ProtectSystem=strict' \
     "${root_mount}/etc/systemd/system/ppstime-healthcheck.service"
 sudo grep -Fxq 'CapabilityBoundingSet=' \
     "${root_mount}/etc/systemd/system/ppstime-healthcheck.service"
+sudo grep -Fxq 'DynamicUser=true' \
+    "${root_mount}/etc/systemd/system/ppstime-dashboard.service"
+sudo grep -Fxq 'ProtectSystem=strict' \
+    "${root_mount}/etc/systemd/system/ppstime-dashboard.service"
+sudo grep -Fxq 'RestrictAddressFamilies=AF_INET AF_INET6' \
+    "${root_mount}/etc/systemd/system/ppstime-dashboard.service"
+sudo grep -Fxq 'PrivateNetwork=true' \
+    "${root_mount}/etc/systemd/system/ppstime-dashboard-sample.service"
+sudo grep -Fxq 'ReadWritePaths=/var/lib/ppstime-dashboard' \
+    "${root_mount}/etc/systemd/system/ppstime-dashboard-sample.service"
+if sudo grep -Fxq 'DynamicUser=true' \
+    "${root_mount}/etc/systemd/system/ppstime-dashboard-sample.service"; then
+    printf 'PPSPi image validation error: sampler must use shared root-owned state\n' >&2
+    exit 1
+fi
 sudo grep -Fxq 'OnUnitActiveSec=2min' \
     "${root_mount}/etc/systemd/system/ppstime-healthcheck.timer"
+sudo grep -Fxq 'OnUnitActiveSec=2min' \
+    "${root_mount}/etc/systemd/system/ppstime-dashboard-sample.timer"
 [[ "$(sudo stat -c '%U:%G:%a' "${root_mount}/etc/ppstime/health-transition.d")" == "root:root:755" ]]
 health_timer_state="$(
     sudo systemctl --root="${root_mount}" is-enabled ppstime-healthcheck.timer \
@@ -212,6 +239,17 @@ update_recovery_state="$(
         "${update_recovery_state:-unknown}" >&2
     exit 1
 }
+for dashboard_unit in ppstime-dashboard.service ppstime-dashboard-sample.timer; do
+    dashboard_state="$(
+        sudo systemctl --root="${root_mount}" is-enabled "${dashboard_unit}" \
+            2> /dev/null || true
+    )"
+    [[ "${dashboard_state}" == "disabled" ]] || {
+        printf 'PPSPi image validation error: %s state is %s, expected disabled\n' \
+            "${dashboard_unit}" "${dashboard_state:-unknown}" >&2
+        exit 1
+    }
+done
 for apt_timer in apt-daily.timer apt-daily-upgrade.timer; do
     apt_timer_state="$(
         sudo systemctl --root="${root_mount}" is-enabled "${apt_timer}" \
@@ -228,6 +266,10 @@ sudo grep -Fxq 'HOST_DISK_WARNING_PERCENT=15.0' \
     "${root_mount}/etc/ppstime/ppstime.env"
 sudo grep -Fxq 'APP_UPDATES_ENABLED=false' "${root_mount}/etc/ppstime/ppstime.env"
 sudo grep -Fxq 'APP_UPDATE_VERSION=' "${root_mount}/etc/ppstime/ppstime.env"
+sudo grep -Fxq 'DASHBOARD_ENABLED=false' "${root_mount}/etc/ppstime/ppstime.env"
+sudo grep -Fxq 'DASHBOARD_BIND=127.0.0.1' "${root_mount}/etc/ppstime/ppstime.env"
+sudo grep -Fxq 'DASHBOARD_ALLOWED_CIDRS=127.0.0.1/32' \
+    "${root_mount}/etc/ppstime/ppstime.env"
 sudo grep -qx \
     'dtoverlay=i2c-rtc,rv3028,backup-switchover-mode=3' \
     "${root_mount}/boot/firmware/config.txt"

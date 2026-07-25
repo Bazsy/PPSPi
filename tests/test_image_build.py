@@ -147,6 +147,18 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("is-enabled ppstime-healthcheck.timer", image_validator)
         self.assertIn("RuntimeDirectoryPreserve=yes", image_validator)
 
+    def test_image_requires_default_disabled_sandboxed_dashboard(self) -> None:
+        image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("/usr/lib/ppstime/ppstime-dashboard", image_validator)
+        self.assertIn("/usr/share/ppstime/dashboard/${dashboard_asset}", image_validator)
+        self.assertIn("index.html dashboard.css dashboard.js ppspi.svg", image_validator)
+        self.assertIn("ppstime-dashboard-sample.timer", image_validator)
+        self.assertIn("DASHBOARD_ENABLED=false", image_validator)
+        self.assertIn("DynamicUser=true", image_validator)
+        self.assertIn("PrivateNetwork=true", image_validator)
+
     def test_image_requires_configuration_backup_command(self) -> None:
         image_validator = (PROJECT_ROOT / "scripts" / "validate-image.sh").read_text(
             encoding="utf-8"

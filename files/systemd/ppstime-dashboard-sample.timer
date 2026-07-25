@@ -1,0 +1,12 @@
+[Unit]
+Description=Sample sanitized PPSPi dashboard history every two minutes
+
+[Timer]
+OnBootSec=6min
+OnUnitActiveSec=2min
+RandomizedDelaySec=10s
+AccuracySec=10s
+Unit=ppstime-dashboard-sample.service
+
+[Install]
+WantedBy=timers.target

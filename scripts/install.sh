@@ -168,7 +168,8 @@ copy_file "${SOURCE_ROOT}/files/ppstime/ppstime_update.py" "/usr/lib/ppstime/pps
 copy_file "${SCRIPT_DIR}/configure-profile.py" "/usr/lib/ppstime/configure-profile.py" 0755
 for command_name in ppstime-status ppstime-test ppstime-config ppstime-diagnostics \
     ppstime-backup ppstime-host-health ppstime-wait-devices ppstime-rtc \
-    ppstime-health ppstime-healthcheck ppstime-maintenance ppstime-update; do
+    ppstime-health ppstime-healthcheck ppstime-maintenance ppstime-update \
+    ppstime-dashboard; do
     copy_file "${SOURCE_ROOT}/files/ppstime/${command_name}" "/usr/lib/ppstime/${command_name}" 0755
 done
 run install -d -m 0755 "$(rooted /usr/local/sbin)"
@@ -179,6 +180,7 @@ done
 run ln -sfnT "/usr/lib/ppstime/ppstime-health" "$(rooted /usr/local/sbin/ppstime-health)"
 run install -d -m 0755 "$(rooted /etc/ppstime/health-transition.d)"
 run install -d -m 0755 "$(rooted /var/lib/ppstime)"
+run install -d -m 0755 "$(rooted /var/lib/ppstime-dashboard)"
 version="$(tr -d '[:space:]' < "${SOURCE_ROOT}/VERSION")"
 git_commit=""
 if [[ -n "${build_info}" ]]; then
@@ -221,6 +223,10 @@ fi
 copy_file "${SOURCE_ROOT}/config/default.env" "/usr/share/ppstime/config/default.env" 0644
 for profile_file in "${SOURCE_ROOT}"/config/profiles/*.env; do
     copy_file "${profile_file}" "/usr/share/ppstime/config/profiles/$(basename "${profile_file}")" 0644
+done
+run install -d -m 0755 "$(rooted /usr/share/ppstime/dashboard)"
+for dashboard_asset in "${SOURCE_ROOT}"/files/dashboard/*; do
+    copy_file "${dashboard_asset}" "/usr/share/ppstime/dashboard/$(basename "${dashboard_asset}")" 0644
 done
 
 copy_file "${SOURCE_ROOT}/files/udev/80-ppstime.rules" "/etc/udev/rules.d/80-ppstime.rules" 0644
@@ -313,6 +319,12 @@ if [[ "${target_root}" == "/" && "${dry_run}" == "false" ]]; then
         systemctl enable ppstime-rtc-restore.service ppstime-rtc-save.timer
     else
         systemctl disable --now ppstime-rtc-restore.service ppstime-rtc-save.timer || true
+    fi
+    if grep -qx 'DASHBOARD_ENABLED=true' /etc/ppstime/ppstime.env; then
+        /usr/lib/ppstime/ppstime-dashboard preflight
+        systemctl enable --now ppstime-dashboard.service ppstime-dashboard-sample.timer
+    else
+        systemctl disable --now ppstime-dashboard.service ppstime-dashboard-sample.timer || true
     fi
     if grep -qx 'RTC_ENABLED=true' /etc/ppstime/ppstime.env &&
         systemctl list-unit-files fake-hwclock.service > /dev/null 2>&1; then

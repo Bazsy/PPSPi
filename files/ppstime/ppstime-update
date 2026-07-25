@@ -159,6 +159,8 @@ def reconcile_units(
             ),
             "ppstime-rtc-restore.service": config["RTC_ENABLED"] == "true",
             "ppstime-rtc-save.timer": config["RTC_ENABLED"] == "true",
+            "ppstime-dashboard.service": config["DASHBOARD_ENABLED"] == "true",
+            "ppstime-dashboard-sample.timer": config["DASHBOARD_ENABLED"] == "true",
         }
     )
     for unit in sorted(stale_units):

@@ -135,16 +135,18 @@ The result is a mode-0600 archive named
 - matching `/dev` listings;
 - Chrony, GPSD, RTC, and PPSPi unit status;
 - up to 500 related journal entries from the last 24 hours;
-- Chrony tracking, sources, source statistics, and clients;
-- bounded `gpspipe`, `ppstest`, and `hwclock` samples.
+- Chrony tracking without source/client address listings;
+- bounded `ppstest` and `hwclock` samples;
+- dashboard state and bounded database metadata (size, row count, and
+  oldest/latest timestamps), but no dashboard sample rows.
 
 It does not intentionally collect `/etc/shadow`, home directories, SSH files,
 wireless profiles, environment variables, arbitrary journal units, or full
 network configuration. Keys containing password, secret, token, private, Wi-Fi,
 SSID, or key terminology are redacted if future profiles add them.
 
-Always inspect an archive before sharing it. Device paths, host timing behavior,
-client addresses in `chronyc clients`, and related logs may still be sensitive
+Always inspect an archive before sharing it. Device paths in scoped device/status
+evidence, host timing behavior, and related service logs may still be sensitive
 in your environment.
 
 ## Passive health monitor
@@ -172,6 +174,18 @@ systemctl list-timers ppstime-healthcheck.timer
 journalctl -u ppstime-healthcheck.service
 ```
 
+Raw Chrony source/client addresses and GPSD position reports are deliberately
+excluded. Diagnostics retain projected PPSPi health, tracking, package, service,
+and bounded journal evidence; identifying configuration values are redacted.
+
 See [health monitoring and operational checks](monitoring.md) for state
 semantics, guarded local hooks, Prometheus textfile integration, and optional
 runtime evidence collection.
+
+## Optional dashboard
+
+When configured, `ppstime-dashboard-sample.timer` persists a strict sanitized
+projection of `ppstime-health --json`, and `ppstime-dashboard.service` serves
+only that bounded history and four fixed local assets. The HTTP service never
+runs diagnostic commands. See [optional read-only dashboard](dashboard.md) for
+the schema, private bind/CIDR policy, security headers, and storage behavior.

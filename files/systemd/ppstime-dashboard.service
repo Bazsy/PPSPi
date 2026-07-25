@@ -1,0 +1,42 @@
+[Unit]
+Description=PPSPi optional read-only local dashboard
+After=network.target ppstime-dashboard-sample.service
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/ppstime/ppstime-dashboard serve
+DynamicUser=true
+UMask=0077
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ReadOnlyPaths=/etc/ppstime/ppstime.env /usr/share/ppstime/dashboard /var/lib/ppstime-dashboard
+MemoryMax=64M
+TasksMax=16
+LimitNOFILE=64
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=10s
+
+[Install]
+WantedBy=multi-user.target

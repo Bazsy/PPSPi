@@ -80,6 +80,11 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue((root / "usr" / "lib" / "ppstime" / "ppstime-health").is_file())
             self.assertTrue((root / "usr" / "lib" / "ppstime" / "ppstime-update").is_file())
             self.assertTrue((root / "usr" / "lib" / "ppstime" / "ppstime_update.py").is_file())
+            self.assertTrue((root / "usr" / "lib" / "ppstime" / "ppstime-dashboard").is_file())
+            for dashboard_asset in ("index.html", "dashboard.css", "dashboard.js", "ppspi.svg"):
+                self.assertTrue(
+                    (root / "usr/share/ppstime/dashboard" / dashboard_asset).is_file()
+                )
             update_link = root / "usr" / "local" / "sbin" / "ppstime-update"
             self.assertTrue(update_link.is_symlink())
             self.assertEqual(update_link.readlink(), Path("/usr/lib/ppstime/ppstime-update"))
@@ -101,6 +106,14 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertIn(
                 "etc/systemd/system/ppstime-update-recovery.service",
+                installation_identity["managed_paths"],
+            )
+            self.assertIn(
+                "usr/share/ppstime/dashboard/index.html",
+                installation_identity["managed_paths"],
+            )
+            self.assertIn(
+                "etc/systemd/system/ppstime-dashboard.service",
                 installation_identity["managed_paths"],
             )
             self.assertTrue(
@@ -139,6 +152,10 @@ class InstallerTests(unittest.TestCase):
             state_dir = root / "var" / "lib" / "ppstime"
             self.assertTrue(state_dir.is_dir())
             self.assertEqual(stat.S_IMODE(state_dir.stat().st_mode), 0o755)
+            dashboard_state_dir = root / "var/lib/ppstime-dashboard"
+            self.assertTrue(dashboard_state_dir.is_dir())
+            self.assertEqual(stat.S_IMODE(dashboard_state_dir.stat().st_mode), 0o755)
+            self.assertIn("DASHBOARD_ENABLED=false", installed_config)
             post_boot_timer = (
                 root
                 / "etc"

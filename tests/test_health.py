@@ -19,6 +19,8 @@ HEALTH_COMMAND = PROJECT_ROOT / "files" / "ppstime" / "ppstime-health"
 DIAGNOSTICS_COMMAND = PROJECT_ROOT / "files" / "ppstime" / "ppstime-diagnostics"
 sys.path.insert(0, str(PROJECT_ROOT / "files" / "ppstime"))
 
+from ppstime_core import load_config
+
 
 def load_health_module() -> ModuleType:
     loader = importlib.machinery.SourceFileLoader("ppstime_health", str(HEALTH_COMMAND))
@@ -777,6 +779,20 @@ class HealthTests(unittest.TestCase):
             index = journal.index(unit)
             self.assertEqual(journal[index - 1], "-u")
         self.assertIn("unattended-upgrades", module.COMMANDS["packages.txt"])
+        self.assertFalse(
+            {"chronyc-sources.txt", "chronyc-sourcestats.txt", "chronyc-clients.txt"}
+            & set(module.COMMANDS)
+        )
+        config = load_config(PROJECT_ROOT, environ={})
+        sanitized = module.diagnostics_config(config)
+        for key in (
+            "DEFAULT_HOSTNAME",
+            "GPS_DEVICE",
+            "NTP_ALLOW",
+            "DASHBOARD_BIND",
+            "DASHBOARD_ALLOWED_CIDRS",
+        ):
+            self.assertEqual(sanitized[key], "REDACTED")
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "health-state.json"
             module.run_command = lambda command, timeout: SimpleNamespace(

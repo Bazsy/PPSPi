@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import platform
+import sqlite3
 import tarfile
 import tempfile
 from datetime import datetime, timezone
@@ -48,11 +49,10 @@ COMMANDS = {
         "ppstime-maintenance.timer",
         "ppstime-maintenance-post-boot.service",
         "ppstime-update-recovery.service",
+        "ppstime-dashboard.service",
+        "ppstime-dashboard-sample.timer",
     ],
     "chronyc-tracking.txt": ["chronyc", "tracking"],
-    "chronyc-sources.txt": ["chronyc", "-n", "sources", "-v"],
-    "chronyc-sourcestats.txt": ["chronyc", "-n", "sourcestats", "-v"],
-    "chronyc-clients.txt": ["chronyc", "-n", "clients"],
     "journal.txt": [
         "journalctl",
         "--no-pager",
@@ -75,6 +75,10 @@ COMMANDS = {
         "ppstime-maintenance-post-boot.service",
         "-u",
         "ppstime-update-recovery.service",
+        "-u",
+        "ppstime-dashboard.service",
+        "-u",
+        "ppstime-dashboard-sample.service",
     ],
 }
 
@@ -86,6 +90,23 @@ def write_command(path: Path, command: list[str], timeout: float = 15.0) -> None
         f"{result.stdout}{result.stderr}",
         encoding="utf-8",
     )
+
+
+def diagnostics_config(config: dict[str, str]) -> dict[str, str]:
+    payload = sanitize_config(config)
+    for key in (
+        "DEFAULT_HOSTNAME",
+        "GPS_DEVICE",
+        "PPS_DEVICE",
+        "RTC_DEVICE",
+        "NTP_ALLOW",
+        "NTP_FALLBACK_POOL",
+        "DASHBOARD_BIND",
+        "DASHBOARD_ALLOWED_CIDRS",
+    ):
+        if key in payload:
+            payload[key] = "REDACTED"
+    return payload
 
 
 def write_health_state(path: Path) -> None:
@@ -142,6 +163,42 @@ def write_application_update_state(path: Path) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def write_dashboard_summary(
+    path: Path,
+    config: dict[str, str],
+    database: Path = Path("/var/lib/ppstime-dashboard/dashboard.sqlite3"),
+) -> None:
+    """Write bounded database metadata without exporting dashboard samples."""
+
+    payload: dict[str, object] = {
+        "enabled": config["DASHBOARD_ENABLED"] == "true",
+        "port": int(config["DASHBOARD_PORT"]),
+        "retention_hours": int(config["DASHBOARD_RETENTION_HOURS"]),
+        "database_exists": database.is_file(),
+    }
+    if database.is_file() and not database.is_symlink():
+        try:
+            payload["database_bytes"] = database.stat().st_size
+            uri = f"file:{database}?mode=ro"
+            connection = sqlite3.connect(uri, uri=True, timeout=0.2)
+            try:
+                row = connection.execute(
+                    "SELECT COUNT(*), MIN(sampled_at), MAX(sampled_at) FROM samples"
+                ).fetchone()
+                payload.update(
+                    {
+                        "sample_count": row[0],
+                        "oldest_sample": row[1],
+                        "latest_sample": row[2],
+                    }
+                )
+            finally:
+                connection.close()
+        except (OSError, sqlite3.Error) as exc:
+            payload["error"] = f"database metadata unavailable: {exc}"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def relevant_boot_lines() -> str:
     boot_path = next(
         (
@@ -188,7 +245,8 @@ def main() -> int:
         bundle = Path(temporary) / f"ppstime-diagnostics-{timestamp}"
         bundle.mkdir(mode=0o700)
         (bundle / "configuration.json").write_text(
-            json.dumps(sanitize_config(config), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            json.dumps(diagnostics_config(config), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
         )
         (bundle / "boot-configuration.txt").write_text(
             relevant_boot_lines(), encoding="utf-8"
@@ -223,8 +281,8 @@ def main() -> int:
         write_host_health(bundle / "host-health.json")
         write_maintenance_state(bundle / "maintenance-state.json")
         write_application_update_state(bundle / "application-update-state.json")
+        write_dashboard_summary(bundle / "dashboard-summary.json", config)
         write_command(bundle / "ppstest.txt", ["ppstest", config["PPS_DEVICE"]], timeout=3)
-        write_command(bundle / "gpspipe.txt", ["gpspipe", "-w", "-n", "10"], timeout=10)
         write_command(
             bundle / "hwclock.txt",
             ["hwclock", "--show", "--utc", "--rtc", config["RTC_DEVICE"]],
