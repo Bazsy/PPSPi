@@ -115,6 +115,9 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("APP_UPDATE_VERSION=''", image_validator)
 
     def test_image_removes_only_missing_cloud_init_module(self) -> None:
+        install_script = (PROJECT_ROOT / "scripts" / "install.sh").read_text(
+            encoding="utf-8"
+        )
         stage_script = (
             PROJECT_ROOT / "pi-gen" / "stage-pps-pi" / "01-install" / "00-run.sh"
         ).read_text(encoding="utf-8")
@@ -123,6 +126,10 @@ class ImageBuildTests(unittest.TestCase):
         )
         self.assertIn("import cloudinit.config.cc_netplan_nm_patch", stage_script)
         self.assertIn("netplan_nm_patch", image_validator)
+        self.assertIn("dpkg-statoverride --add --update root root 0600", install_script)
+        self.assertIn("rpi-cloud-init-mods", install_script)
+        self.assertIn("root:root:600", image_validator)
+        self.assertIn("/var/lib/dpkg/statoverride", image_validator)
 
     def test_active_profile_is_non_secret_and_world_readable(self) -> None:
         configure_script = (PROJECT_ROOT / "scripts" / "configure-profile.py").read_text(

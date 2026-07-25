@@ -75,6 +75,11 @@ if sudo grep -qE '^[[:space:]]*-[[:space:]]*netplan_nm_patch[[:space:]]*$' \
     printf 'PPSPi image validation error: cloud-init references missing netplan_nm_patch\n' >&2
     exit 1
 fi
+netplan_renderer="${root_mount}/usr/lib/netplan/00-network-manager-all.yaml"
+[[ -f "${netplan_renderer}" && ! -L "${netplan_renderer}" ]]
+[[ "$(sudo stat -c '%U:%G:%a' "${netplan_renderer}")" == "root:root:600" ]]
+sudo grep -Fxq 'root root 600 /usr/lib/netplan/00-network-manager-all.yaml' \
+    "${root_mount}/var/lib/dpkg/statoverride"
 
 for seed_file in meta-data network-config user-data; do
     [[ -s "${root_mount}/boot/firmware/${seed_file}" ]] || {

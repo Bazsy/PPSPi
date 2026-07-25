@@ -39,6 +39,13 @@ All notable changes are documented here. PPSPi follows
   database access, security headers, peer-CIDR enforcement, rate/concurrency
   limits, and no command, raw-data, administrative, or external-request path.
 
+### Fixed
+
+- persist mode `0600` for Raspberry Pi OS's default NetworkManager Netplan
+  renderer file through a package-owner-verified `dpkg-statoverride`, preventing
+  first-boot and subsequent Netplan permission warnings from returning after
+  package upgrades.
+
 ## 0.1.0 - 2026-07-22
 
 ### Added

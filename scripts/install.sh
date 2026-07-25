@@ -162,6 +162,26 @@ elif [[ "${skip_packages}" == "false" ]]; then
     die "package installation for alternate roots must be handled by the image builder"
 fi
 
+netplan_renderer="/usr/lib/netplan/00-network-manager-all.yaml"
+if [[ "${target_root}" == "/" && "${dry_run}" == "false" && -e "${netplan_renderer}" ]]; then
+    [[ -f "${netplan_renderer}" && ! -L "${netplan_renderer}" ]] ||
+        die "Netplan renderer configuration is not a regular file"
+    netplan_owner="$(dpkg-query -S "${netplan_renderer}" 2> /dev/null || true)"
+    [[ "${netplan_owner}" == "rpi-cloud-init-mods: ${netplan_renderer}" ]] ||
+        die "Netplan renderer configuration has an unexpected package owner"
+    netplan_override="$(dpkg-statoverride --list "${netplan_renderer}" || true)"
+    expected_netplan_override="root root 600 ${netplan_renderer}"
+    if [[ -z "${netplan_override}" ]]; then
+        log "persisting secure Netplan renderer permissions"
+        dpkg-statoverride --add --update root root 0600 "${netplan_renderer}"
+    elif [[ "${netplan_override}" == "${expected_netplan_override}" ]]; then
+        chown root:root "${netplan_renderer}"
+        chmod 0600 "${netplan_renderer}"
+    else
+        die "Netplan renderer configuration has a conflicting statoverride"
+    fi
+fi
+
 log "installing PPSPi runtime"
 copy_file "${SOURCE_ROOT}/files/ppstime/ppstime_core.py" "/usr/lib/ppstime/ppstime_core.py" 0644
 copy_file "${SOURCE_ROOT}/files/ppstime/ppstime_update.py" "/usr/lib/ppstime/ppstime_update.py" 0644

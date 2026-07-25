@@ -20,6 +20,18 @@ class InstallerTests(unittest.TestCase):
             installer,
         )
 
+    def test_installer_persists_secure_netplan_renderer_permissions(self) -> None:
+        installer = (PROJECT_ROOT / "scripts" / "install.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'netplan_renderer="/usr/lib/netplan/00-network-manager-all.yaml"',
+            installer,
+        )
+        self.assertIn("rpi-cloud-init-mods:", installer)
+        self.assertIn("dpkg-statoverride --add --update root root 0600", installer)
+        self.assertIn("conflicting statoverride", installer)
+
     def test_alternate_root_install_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "rootfs"
