@@ -139,6 +139,14 @@ cmdline.txt.ppstime-20260718T120000Z.bak
 
 No new backup is created when content is already correct.
 
+Raspberry Pi OS Trixie's `rpi-cloud-init-mods` package currently installs its
+default NetworkManager Netplan renderer file with mode `0644`, which causes
+Netplan to warn that configuration permissions are too open. On a live install
+or during image construction, PPSPi verifies that exact package ownership and
+adds a `root:root 0600` `dpkg-statoverride`. The override survives package
+upgrades; an existing conflicting administrator override fails installation
+rather than being replaced silently.
+
 ## First reboot and verification
 
 After reboot:
