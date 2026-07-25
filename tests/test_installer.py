@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import stat
 import subprocess
 import tempfile
@@ -10,6 +11,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class InstallerTests(unittest.TestCase):
+    def test_installer_enables_maintenance_for_os_or_application_updates(self) -> None:
+        installer = (PROJECT_ROOT / "scripts" / "install.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "(OS_UPDATES_ENABLED|APP_UPDATES_ENABLED)=true",
+            installer,
+        )
+
     def test_alternate_root_install_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "rootfs"
@@ -68,6 +78,39 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue(health_link.is_symlink())
             self.assertEqual(health_link.readlink(), Path("/usr/lib/ppstime/ppstime-health"))
             self.assertTrue((root / "usr" / "lib" / "ppstime" / "ppstime-health").is_file())
+            self.assertTrue((root / "usr" / "lib" / "ppstime" / "ppstime-update").is_file())
+            self.assertTrue((root / "usr" / "lib" / "ppstime" / "ppstime_update.py").is_file())
+            update_link = root / "usr" / "local" / "sbin" / "ppstime-update"
+            self.assertTrue(update_link.is_symlink())
+            self.assertEqual(update_link.readlink(), Path("/usr/lib/ppstime/ppstime-update"))
+            origin = (root / "var/lib/ppstime/install-origin.json").read_text(
+                encoding="ascii"
+            )
+            self.assertIn('"origin":"source"', origin)
+            self.assertIn('"adopted":false', origin)
+            self.assertIn('"git_commit":', origin)
+            installation_identity = json.loads(
+                (root / "var/lib/ppstime/application-installation.json").read_text(
+                    encoding="ascii"
+                )
+            )
+            self.assertEqual(installation_identity["version"], "0.2.0-dev")
+            self.assertIn(
+                "usr/lib/ppstime/ppstime-update",
+                installation_identity["managed_paths"],
+            )
+            self.assertIn(
+                "etc/systemd/system/ppstime-update-recovery.service",
+                installation_identity["managed_paths"],
+            )
+            self.assertTrue(
+                (root / "etc/systemd/system/ppstime-update-recovery.service").is_file()
+            )
+            self.assertTrue(
+                (root / "usr/share/ppstime/application-update.pub")
+                .read_text(encoding="ascii")
+                .startswith("untrusted comment: minisign public key")
+            )
             self.assertTrue((root / "etc" / "ppstime" / "health-transition.d").is_dir())
             health_service = (
                 root / "etc" / "systemd" / "system" / "ppstime-healthcheck.service"

@@ -40,6 +40,14 @@ hardware, timing, service, hostname, and private-LAN settings; credential keys
 are not supported. Wi-Fi and SSH credentials remain managed by Raspberry Pi OS
 outside the PPSPi profile.
 
+PPSPi application updates trust the dedicated minisign public key committed at
+`files/application-update.pub` and exact
+versioned release assets. They are disabled by default, reject network
+downgrades and cross-series changes, and never include account, network, SSH,
+cloud-init, boot, or live `/etc/ppstime/ppstime.env` data. The repository's
+private signing key is held only in the protected GitHub release environment and
+an offline maintainer recovery copy; it must never be installed on appliances.
+
 Time from civilian GNSS and unauthenticated public NTP can be jammed, spoofed,
 or delayed. PPSPi source selection and fallback improve resilience but do not
 provide cryptographic proof of UTC. Deploy independent time sources and

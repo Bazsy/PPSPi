@@ -14,7 +14,6 @@ output_dir="${SOURCE_ROOT}/artifacts"
 checkout_dir="${SOURCE_ROOT}/.pi-gen/checkout"
 prepare_only="false"
 image_url=""
-readonly SEMVER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 
 usage() {
     cat << 'EOF'
@@ -71,7 +70,8 @@ while (($# > 0)); do
     esac
 done
 
-[[ "${version}" =~ ${SEMVER_RE} ]] || die "version must be valid semantic versioning"
+python3 "${SCRIPT_DIR}/validate-semver.py" "${version}" ||
+    die "version must be valid semantic versioning"
 command -v git > /dev/null 2>&1 || die "git is required"
 command -v tar > /dev/null 2>&1 || die "tar is required"
 command -v python3 > /dev/null 2>&1 || die "python3 is required"

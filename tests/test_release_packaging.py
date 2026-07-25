@@ -13,6 +13,23 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleasePackagingTests(unittest.TestCase):
+    def test_shared_semver_validator_rejects_numeric_prerelease_leading_zero(self) -> None:
+        validator = PROJECT_ROOT / "scripts" / "validate-semver.py"
+        accepted = subprocess.run(
+            [sys.executable, str(validator), "1.2.3-rc.1+build.7"],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        rejected = subprocess.run(
+            [sys.executable, str(validator), "1.2.3-rc.01"],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertNotEqual(rejected.returncode, 0)
+
     def test_build_info_and_release_package(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

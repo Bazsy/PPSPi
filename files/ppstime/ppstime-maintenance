@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fcntl
 import json
 import os
@@ -17,7 +18,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ppstime_core import ConfigError, parse_env_file, parse_key_value_output, validate_config
+from ppstime_core import (
+    ConfigError,
+    maintenance_enabled,
+    parse_env_file,
+    parse_key_value_output,
+    validate_config,
+)
 
 STATE_SCHEMA = 1
 REBOOT_SCHEMA = 1
@@ -75,6 +82,11 @@ def atomic_json(path: Path, payload: dict[str, Any], mode: int = 0o644) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -182,8 +194,8 @@ def acquire_package_locks(paths: list[Path], timeout: float) -> Any:
 def run_maintenance(args: argparse.Namespace) -> int:
     config = parse_env_file(args.config)
     validate_config(config)
-    if config["OS_UPDATES_ENABLED"] != "true":
-        print("PPSPi OS maintenance is disabled")
+    if not maintenance_enabled(config):
+        print("PPSPi OS and application maintenance are disabled")
         return 0
     if os.geteuid() != 0 and not args.allow_non_root:
         raise MaintenanceError("OS maintenance must run as root")
@@ -193,14 +205,39 @@ def run_maintenance(args: argparse.Namespace) -> int:
         reboot_required = args.reboot_required.exists()
         reboot_marker_created = False
         try:
-            update = run_command(args.update_command)
-            if update.returncode != 0:
-                raise MaintenanceError(f"package index update exited {update.returncode}")
-            upgrade = run_command(args.upgrade_command)
-            if upgrade.returncode != 0:
-                raise MaintenanceError(f"unattended-upgrade exited {upgrade.returncode}")
-            if not package_audit_clean(args.audit_command):
+            if config["OS_UPDATES_ENABLED"] == "true":
+                update = run_command(args.update_command)
+                if update.returncode != 0:
+                    raise MaintenanceError(f"package index update exited {update.returncode}")
+                upgrade = run_command(args.upgrade_command)
+                if upgrade.returncode != 0:
+                    raise MaintenanceError(f"unattended-upgrade exited {upgrade.returncode}")
+                if not package_audit_clean(args.audit_command):
+                    raise MaintenanceError("package audit reports an incomplete package state")
+            elif config["APP_UPDATES_ENABLED"] == "true" and not package_audit_clean(
+                args.audit_command
+            ):
                 raise MaintenanceError("package audit reports an incomplete package state")
+            if config["APP_UPDATES_ENABLED"] == "true":
+                version = config["APP_UPDATE_VERSION"]
+                if not version:
+                    raise MaintenanceError(
+                        "application updates are enabled without APP_UPDATE_VERSION"
+                    )
+                application = run_command(
+                    [
+                        *args.application_update_command,
+                        "apply",
+                        "--version",
+                        version,
+                        "--yes",
+                        "--skip-lock",
+                    ]
+                )
+                if application.returncode != 0:
+                    raise MaintenanceError(
+                        f"application update exited {application.returncode}"
+                    )
             reboot_required = args.reboot_required.exists()
             if reboot_required and config["OS_REBOOT_ENABLED"] == "true":
                 if config["RTC_ENABLED"] == "true":
@@ -252,7 +289,7 @@ def run_maintenance(args: argparse.Namespace) -> int:
         except (MaintenanceError, OSError):
             if reboot_marker_created:
                 args.reboot_state.unlink(missing_ok=True)
-            try:
+            with contextlib.suppress(OSError):
                 update_state(
                     args.state_file,
                     checked_at=checked_at,
@@ -260,8 +297,6 @@ def run_maintenance(args: argparse.Namespace) -> int:
                     reboot_required=reboot_required,
                     successful=False,
                 )
-            except OSError:
-                pass
             raise
 
         if not reboot_required:
@@ -401,6 +436,11 @@ def parse_args() -> argparse.Namespace:
         default=["/usr/lib/ppstime/ppstime-rtc", "save", "--required"],
     )
     parser.add_argument("--reboot-command", nargs="+", default=["systemctl", "reboot"])
+    parser.add_argument(
+        "--application-update-command",
+        nargs="+",
+        default=["/usr/lib/ppstime/ppstime-update"],
+    )
     parser.add_argument(
         "--deep-test-command",
         nargs="+",

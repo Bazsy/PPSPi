@@ -63,6 +63,8 @@ CONFIG_KEYS = frozenset(
         "OS_MAINTENANCE_TIMEZONE",
         "OS_MAINTENANCE_RANDOM_DELAY_MINUTES",
         "OS_REBOOT_ENABLED",
+        "APP_UPDATES_ENABLED",
+        "APP_UPDATE_VERSION",
         "SSH_ENABLED",
         "DEFAULT_HOSTNAME",
         "SUPPORTED_MODEL_PATTERN",
@@ -87,6 +89,8 @@ OS_MAINTENANCE_DEFAULTS = {
     "OS_MAINTENANCE_TIMEZONE": "UTC",
     "OS_MAINTENANCE_RANDOM_DELAY_MINUTES": "30",
     "OS_REBOOT_ENABLED": "true",
+    "APP_UPDATES_ENABLED": "false",
+    "APP_UPDATE_VERSION": "",
 }
 MIGRATABLE_CONFIG_DEFAULTS = {**HOST_THRESHOLD_DEFAULTS, **OS_MAINTENANCE_DEFAULTS}
 
@@ -97,6 +101,7 @@ BOOLEAN_KEYS = frozenset(
         "CHRONY_ENABLED",
         "OS_UPDATES_ENABLED",
         "OS_REBOOT_ENABLED",
+        "APP_UPDATES_ENABLED",
         "SSH_ENABLED",
     }
 )
@@ -117,6 +122,11 @@ PRIVATE_LAN_NETWORKS = (
 HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*"
     r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$"
+)
+SEMVER_RE = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
 
 
@@ -359,6 +369,13 @@ def validate_config(config: Mapping[str, str]) -> None:
         raise ConfigError("OS_MAINTENANCE_RANDOM_DELAY_MINUTES must be an integer") from exc
     if not 0 <= maintenance_delay <= 360:
         raise ConfigError("OS_MAINTENANCE_RANDOM_DELAY_MINUTES must be between 0 and 360")
+    app_update_version = config["APP_UPDATE_VERSION"]
+    if app_update_version and not semantic_version_is_valid(app_update_version):
+        raise ConfigError("APP_UPDATE_VERSION must be empty or an explicit semantic version")
+    if config["APP_UPDATES_ENABLED"] == "true" and not app_update_version:
+        raise ConfigError(
+            "APP_UPDATE_VERSION must be set when APP_UPDATES_ENABLED is true"
+        )
     try:
         re.compile(config["SUPPORTED_MODEL_PATTERN"])
     except re.error as exc:
@@ -374,6 +391,28 @@ def split_cidrs(value: str) -> list[str]:
     if any(not part for part in parts):
         raise ConfigError("NTP_ALLOW contains an empty CIDR")
     return parts
+
+
+def semantic_version_is_valid(value: str) -> bool:
+    """Return whether *value* is strict SemVer 2.0.0, including build metadata."""
+
+    match = SEMVER_RE.fullmatch(value)
+    if match is None:
+        return False
+    prerelease = (match.group(4) or "").split(".")
+    return not any(
+        identifier.isdigit() and len(identifier) > 1 and identifier.startswith("0")
+        for identifier in prerelease
+    )
+
+
+def maintenance_enabled(config: Mapping[str, str]) -> bool:
+    """Return whether either bounded OS or application maintenance is enabled."""
+
+    return (
+        config["OS_UPDATES_ENABLED"] == "true"
+        or config["APP_UPDATES_ENABLED"] == "true"
+    )
 
 
 def config_to_env(config: Mapping[str, str]) -> str:
@@ -592,6 +631,11 @@ def atomic_write(path: Path, content: str, *, mode: int = 0o644) -> bool:
             os.fsync(handle.fileno())
         os.chmod(temporary_path, mode)
         os.replace(temporary_path, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         temporary_path.unlink(missing_ok=True)
     return True

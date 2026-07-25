@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the exact four PPSPi assets before attaching them to a release."""
+"""Validate the exact PPSPi image and application assets before publication."""
 
 from __future__ import annotations
 
@@ -8,14 +8,20 @@ import hashlib
 import json
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
-SEMVER_RE = re.compile(
-    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
-    r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
-    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "files" / "ppstime"))
+
+from ppstime_core import semantic_version_is_valid  # noqa: E402
+from ppstime_update import (  # noqa: E402
+    load_manifest_bytes,
+    validate_archive,
+    verify_signature,
 )
+
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 CHUNK_SIZE = 1024 * 1024
 
@@ -45,14 +51,18 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def expected_asset_names(version: str) -> tuple[str, str, str, str]:
+def expected_asset_names(version: str, *, application: bool = False) -> tuple[str, ...]:
     image = f"ppspi-{version}-raspios-trixie-arm64.img.xz"
-    return (
+    assets = (
         image,
         f"{image}.sha256",
         "build-info.json",
         f"ppspi-{version}-raspios-trixie-arm64.rpi-imager-manifest",
     )
+    if not application:
+        return assets
+    archive = f"ppspi-{version}-application.tar.gz"
+    return (*assets, archive, f"{archive}.manifest.json", f"{archive}.manifest.json.minisig")
 
 
 def validate_release_assets(
@@ -62,10 +72,12 @@ def validate_release_assets(
     tag: str,
     repository: str,
     expected_commit: str,
+    require_application_update: bool = False,
+    application_public_key: Path | None = None,
 ) -> dict[str, Any]:
     """Validate names, checksums, metadata, and Imager release URL."""
 
-    if not SEMVER_RE.fullmatch(version):
+    if not semantic_version_is_valid(version):
         raise ValidationError(f"version is not semantic versioning: {version}")
     if tag != f"v{version}":
         raise ValidationError(f"tag {tag} does not match version {version}")
@@ -76,7 +88,7 @@ def validate_release_assets(
     if not directory.is_dir():
         raise ValidationError(f"asset directory not found: {directory}")
 
-    expected_names = expected_asset_names(version)
+    expected_names = expected_asset_names(version, application=require_application_update)
     actual_names = sorted(path.name for path in directory.iterdir() if path.is_file())
     if actual_names != sorted(expected_names):
         raise ValidationError(
@@ -86,7 +98,7 @@ def validate_release_assets(
             + ", ".join(actual_names)
         )
 
-    image_name, checksum_name, build_info_name, manifest_name = expected_names
+    image_name, checksum_name, build_info_name, manifest_name = expected_names[:4]
     image_path = directory / image_name
     image_size = image_path.stat().st_size
     if image_size <= 0:
@@ -147,6 +159,40 @@ def validate_release_assets(
     if not isinstance(extract_size, int) or extract_size <= 0:
         raise ValidationError("manifest extract_size is missing or invalid")
 
+    if require_application_update:
+        if application_public_key is None:
+            raise ValidationError("application public key is required")
+        application_archive = directory / f"ppspi-{version}-application.tar.gz"
+        application_manifest = application_archive.with_name(
+            f"{application_archive.name}.manifest.json"
+        )
+        application_signature = application_manifest.with_name(
+            f"{application_manifest.name}.minisig"
+        )
+        try:
+            verify_signature(
+                application_manifest,
+                application_signature,
+                application_public_key,
+            )
+            parsed_manifest = load_manifest_bytes(
+                application_manifest.read_bytes(),
+                expected_version=version,
+                expected_repository=repository,
+            )
+            if parsed_manifest["git_commit"] != expected_commit:
+                raise ValidationError(
+                    "application manifest Git commit does not match the release tag"
+                )
+            with tempfile.TemporaryDirectory(prefix="ppspi-release-validation-") as temporary:
+                validate_archive(
+                    application_archive,
+                    parsed_manifest,
+                    Path(temporary) / "payload",
+                )
+        except (OSError, ValueError) as exc:
+            raise ValidationError(f"application update validation failed: {exc}") from exc
+
     return {
         "version": version,
         "tag": tag,
@@ -168,6 +214,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tag", required=True)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--expected-commit", required=True)
+    parser.add_argument("--require-application-update", action="store_true")
+    parser.add_argument("--application-public-key", type=Path)
     parser.add_argument("--json", action="store_true")
     return parser.parse_args()
 
@@ -181,6 +229,8 @@ def main() -> int:
             tag=args.tag,
             repository=args.repository,
             expected_commit=args.expected_commit,
+            require_application_update=args.require_application_update,
+            application_public_key=args.application_public_key,
         )
     except (OSError, ValidationError) as exc:
         print(f"PPSPi release asset validation error: {exc}", file=sys.stderr)

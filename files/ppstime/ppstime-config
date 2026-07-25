@@ -10,7 +10,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ppstime_core import CONFIG_KEYS, ConfigError, atomic_write, config_to_env, parse_env_file, validate_config
+from ppstime_core import (
+    CONFIG_KEYS,
+    ConfigError,
+    atomic_write,
+    config_to_env,
+    maintenance_enabled,
+    parse_env_file,
+    validate_config,
+)
 
 
 def require_root() -> None:
@@ -96,7 +104,7 @@ def main() -> int:
         subprocess.run(
             ["systemctl", "enable", "ppstime-maintenance-post-boot.timer"], check=True
         )
-        if config["OS_UPDATES_ENABLED"] == "true":
+        if maintenance_enabled(config):
             subprocess.run(
                 ["systemctl", "enable", "--now", "ppstime-maintenance.timer"],
                 check=True,
