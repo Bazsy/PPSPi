@@ -1,6 +1,11 @@
 # PPSPi hardware test report: v0.2.1
 
-Status: **INHERITED TIMING BASELINE; PATCH-SPECIFIC HARDWARE CHECK PENDING**
+Status: **NO DEPLOYABLE ASSETS; SUPERSEDED BY v0.2.2**
+
+The v0.2.1 release image failed to build before any asset was signed or
+uploaded. No v0.2.1 image or application bundle exists to test. The inherited
+evidence below remains historical context; patch-specific acceptance continues
+with v0.2.2.
 
 PPSPi v0.2.1 changes dashboard startup, IPv4 listen defaults, and exact legacy
 configuration migration. It does not change GPSD, PPS, Chrony, RTC, boot

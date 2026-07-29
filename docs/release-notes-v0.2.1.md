@@ -1,5 +1,10 @@
 # PPSPi v0.2.1 release notes
 
+> [!CAUTION]
+> The v0.2.1 image build failed before signing or uploading any assets. This tag
+> has no deployable image or application bundle and is retained only as an
+> immutable release record. Use v0.2.2 instead.
+
 PPSPi v0.2.1 makes the sanitized read-only status dashboard available on a
 trusted private LAN immediately after installation, update, or boot. It is a
 same-series application update for existing v0.2.0 image installations and does
