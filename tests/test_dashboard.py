@@ -23,7 +23,13 @@ DEGRADED_FIXTURES = (
 )
 sys.path.insert(0, str(CORE_ROOT))
 
-from ppstime_core import ConfigError, config_to_env, load_config, validate_config
+from ppstime_core import (
+    ConfigError,
+    config_to_env,
+    load_config,
+    migrate_dashboard_defaults,
+    validate_config,
+)
 from ppstime_update import UpdateError, safe_payload_path, source_payload_files
 
 
@@ -43,16 +49,19 @@ class DashboardTests(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config(PROJECT_ROOT, environ={})
 
-    def test_disabled_private_defaults_and_invalid_configuration(self) -> None:
-        self.assertEqual(self.config["DASHBOARD_ENABLED"], "false")
-        self.assertEqual(self.config["DASHBOARD_BIND"], "127.0.0.1")
-        self.assertEqual(self.config["DASHBOARD_ALLOWED_CIDRS"], "127.0.0.1/32")
+    def test_enabled_private_defaults_and_invalid_configuration(self) -> None:
+        self.assertEqual(self.config["DASHBOARD_ENABLED"], "true")
+        self.assertEqual(self.config["DASHBOARD_BIND"], "0.0.0.0")
+        self.assertEqual(
+            self.config["DASHBOARD_ALLOWED_CIDRS"],
+            "127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16",
+        )
         self.assertEqual(self.config["DASHBOARD_PORT"], "8080")
         self.assertEqual(self.config["DASHBOARD_RETENTION_HOURS"], "168")
         invalid = (
             {"DASHBOARD_ENABLED": "yes"},
             {"DASHBOARD_BIND": "localhost"},
-            {"DASHBOARD_BIND": "0.0.0.0", "DASHBOARD_ALLOWED_CIDRS": "10.0.0.0/8"},
+            {"DASHBOARD_BIND": "::"},
             {"DASHBOARD_BIND": "8.8.8.8", "DASHBOARD_ALLOWED_CIDRS": "8.8.8.8/32"},
             {"DASHBOARD_BIND": "192.168.2.2", "DASHBOARD_ALLOWED_CIDRS": "192.168.1.0/24"},
             {"DASHBOARD_ALLOWED_CIDRS": "0.0.0.0/0"},
@@ -74,6 +83,52 @@ class DashboardTests(unittest.TestCase):
                 DASHBOARD_ALLOWED_CIDRS="192.168.1.0/24",
             )
         )
+
+    def test_exact_v020_defaults_migrate_but_custom_settings_are_preserved(self) -> None:
+        legacy = dict(
+            self.config,
+            DASHBOARD_ENABLED="false",
+            DASHBOARD_BIND="127.0.0.1",
+            DASHBOARD_ALLOWED_CIDRS="127.0.0.1/32",
+        )
+        self.assertEqual(migrate_dashboard_defaults(legacy), self.config)
+        customized = dict(legacy, DASHBOARD_PORT="8081")
+        self.assertEqual(migrate_dashboard_defaults(customized), customized)
+
+    def test_configuration_regeneration_migrates_v020_dashboard_defaults(self) -> None:
+        legacy = dict(
+            self.config,
+            DASHBOARD_ENABLED="false",
+            DASHBOARD_BIND="127.0.0.1",
+            DASHBOARD_ALLOWED_CIDRS="127.0.0.1/32",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            boot = root / "boot/firmware"
+            boot.mkdir(parents=True)
+            (boot / "config.txt").write_text("# boot\n", encoding="utf-8")
+            (boot / "cmdline.txt").write_text("root=test rw\n", encoding="utf-8")
+            config = root / "etc/ppstime/ppstime.env"
+            config.parent.mkdir(parents=True)
+            config.write_text(config_to_env(legacy), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(PROJECT_ROOT / "scripts/configure-profile.py"),
+                    "--source-root",
+                    str(PROJECT_ROOT),
+                    "--root",
+                    str(root),
+                    "--config",
+                    str(config),
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            migrated = self.module.load_dashboard_config(config)
+        self.assertEqual(migrated, self.config)
 
     def test_closed_projection_excludes_raw_and_identifying_fields(self) -> None:
         payload = json.loads(json.dumps(self.fixture))
@@ -496,7 +551,7 @@ console.log(JSON.stringify(result));
         self.assertIn('"ppstime-dashboard-sample.timer"', config_command)
 
     def test_config_fixture_can_be_written_canonically(self) -> None:
-        enabled = dict(self.config, DASHBOARD_ENABLED="true")
+        enabled = dict(self.config)
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "ppstime.env"
             path.write_text(config_to_env(enabled), encoding="utf-8")

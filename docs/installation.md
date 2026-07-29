@@ -63,7 +63,8 @@ The installer:
 6. removes only serial-console kernel arguments that conflict with GPS;
 7. writes GPSD and Chrony configuration;
 8. enables timing and health timers;
-9. disables `fake-hwclock` when a real RTC is configured.
+9. enables the private-LAN read-only dashboard and history sampler;
+10. disables `fake-hwclock` when a real RTC is configured.
 
 Run the installer again after an interrupted setup. Repeated runs produce the
 same managed content and do not duplicate boot lines.

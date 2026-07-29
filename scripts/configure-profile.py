@@ -18,6 +18,7 @@ from ppstime_core import (  # noqa: E402
     atomic_write,
     config_to_env,
     load_config,
+    migrate_dashboard_defaults,
     model_is_supported,
     remove_serial_console,
     render_boot_block,
@@ -84,6 +85,8 @@ def main() -> int:
             profile=args.profile,
             custom_path=args.config.resolve() if args.config else None,
         )
+        if args.config and not args.validate_only:
+            config = migrate_dashboard_defaults(config)
 
         model = args.model or read_model(root)
         if model and not model_is_supported(model, config) and not args.allow_unsupported_model:
