@@ -75,6 +75,8 @@ def main() -> int:
         apply_process = subprocess.run(apply_command, check=False)
         if apply_process.returncode != 0:
             return apply_process.returncode
+        config = parse_env_file(args.config)
+        validate_config(config)
         syntax_process = subprocess.run(
             ["chronyd", "-p", "-f", "/etc/chrony/chrony.conf"], check=False
         )
@@ -124,12 +126,6 @@ def main() -> int:
             check=True,
         )
         if dashboard_enabled(config):
-            preflight = subprocess.run(
-                ["/usr/lib/ppstime/ppstime-dashboard", "preflight"],
-                check=False,
-            )
-            if preflight.returncode != 0:
-                raise ConfigError("dashboard bind preflight failed")
             previous = {
                 unit: (
                     subprocess.run(
@@ -147,9 +143,15 @@ def main() -> int:
             }
             try:
                 for unit in dashboard_units:
-                    subprocess.run(
-                        ["systemctl", "enable", "--now", unit], check=True
-                    )
+                    subprocess.run(["systemctl", "enable", unit], check=True)
+                subprocess.run(
+                    ["systemctl", "restart", "ppstime-dashboard.service"],
+                    check=True,
+                )
+                subprocess.run(
+                    ["systemctl", "start", "ppstime-dashboard-sample.timer"],
+                    check=True,
+                )
             except subprocess.CalledProcessError:
                 for unit, (enabled, active) in previous.items():
                     subprocess.run(

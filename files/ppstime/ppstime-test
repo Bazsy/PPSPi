@@ -43,13 +43,20 @@ def invoked_by_application_update(
 
     pid = os.getppid() if parent_pid is None else parent_pid
     try:
-        command = (proc_root / str(pid) / "cmdline").read_bytes().split(b"\0")
+        raw_command = (proc_root / str(pid) / "cmdline").read_bytes().split(b"\0")
     except OSError:
         return False
-    return any(
-        Path(part.decode("utf-8", errors="ignore")).name == "ppstime-update"
-        for part in command
-        if part
+    command = [
+        part.decode("utf-8", errors="ignore") for part in raw_command if part
+    ]
+    if not command:
+        return False
+    if Path(command[0]).name == "ppstime-update":
+        return True
+    return (
+        Path(command[0]).name.startswith("python")
+        and len(command) > 1
+        and Path(command[1]).name == "ppstime-update"
     )
 
 
@@ -108,6 +115,28 @@ def retry_update_validation(args: argparse.Namespace, initial_output: str) -> tu
     return 1, last_output
 
 
+def activate_dashboard_for_application_update(config: dict[str, str]) -> Check | None:
+    """Restart the dashboard from the newly installed update payload."""
+
+    if config["DASHBOARD_ENABLED"] != "true":
+        return None
+    restart = run_command(
+        ["systemctl", "restart", "ppstime-dashboard.service"], timeout=30
+    )
+    active = run_command(
+        ["systemctl", "is-active", "--quiet", "ppstime-dashboard.service"],
+        timeout=10,
+    )
+    healthy = restart.returncode == 0 and active.returncode == 0
+    return Check(
+        "dashboard_activation",
+        "PASS" if healthy else "FAIL",
+        "active with regenerated configuration"
+        if healthy
+        else "failed to restart with regenerated configuration",
+    )
+
+
 def port_123_listening() -> bool:
     result = run_command(["ss", "-H", "-l", "-u", "-n"], timeout=5)
     return result.returncode == 0 and parse_ss_udp_listener(result.stdout, port=123)
@@ -146,6 +175,17 @@ def main() -> int:
         print(f"ppstime-test: {exc}", file=sys.stderr)
         return 2
 
+    update_invocation = (
+        args.fixture_dir is None
+        and not args.no_update_settle
+        and invoked_by_application_update()
+    )
+    dashboard_activation = (
+        activate_dashboard_for_application_update(config)
+        if update_invocation
+        else None
+    )
+
     status_command = [
         sys.executable,
         str(Path(__file__).with_name("ppstime-status")),
@@ -164,7 +204,9 @@ def main() -> int:
         print(f"ppstime-test: cannot collect status: {exc}", file=sys.stderr)
         return 2
 
-    checks: list[Check] = []
+    checks: list[Check] = (
+        [dashboard_activation] if dashboard_activation is not None else []
+    )
     fixture_mode = args.fixture_dir is not None
     packages = ("chronyc", "gpspipe", "ppstest", "hwclock", "jq", "python3")
     missing_packages = [command for command in packages if shutil.which(command) is None]
@@ -242,11 +284,14 @@ def main() -> int:
 
     failed = [check for check in checks if check.essential and check.status == "FAIL"]
     output = render_checks(checks, json_output=args.json)
+    if dashboard_activation is not None and dashboard_activation.status == "FAIL":
+        print(output, end="")
+        return 1
     if (
         failed
         and not fixture_mode
         and not args.no_update_settle
-        and invoked_by_application_update()
+        and update_invocation
     ):
         returncode, output = retry_update_validation(args, output)
         print(output, end="")

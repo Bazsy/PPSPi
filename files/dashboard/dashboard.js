@@ -20,6 +20,10 @@ const stateClass = (state) =>
       : "state-bad";
 const value = (input, suffix = "") =>
   input === null || input === undefined ? "—" : `${input}${suffix}`;
+const oneDecimal = (input, suffix = "") =>
+  typeof input === "number" && Number.isFinite(input)
+    ? `${input.toFixed(1)}${suffix}`
+    : "—";
 const metricValue = (input, scale = 1) =>
   input === null || input === undefined ? null : Number(input) * scale;
 const formatTime = (input) =>
@@ -66,13 +70,13 @@ function renderLatest(sample) {
   byId("host-detail").textContent =
     sample.host_collection_available === false
       ? "Collector unavailable"
-      : `Root ${value(sample.root_available_percent, "%")} free`;
+      : `Root ${oneDecimal(sample.root_available_percent, "%")} free`;
   byId("signal-state").textContent = value(sample.gps_fix);
   byId("signal-state").className =
     sample.gps_fix === "3D" || sample.gps_fix === "2D" ? "state-good" : "state-warn";
   byId("signal-detail").textContent = `PPS ${value(sample.pps_pulses).toLowerCase()}`;
-  byId("temperature").textContent = value(sample.temperature_celsius, "°C");
-  byId("storage").textContent = `Boot ${value(sample.boot_available_percent, "%")} free`;
+  byId("temperature").textContent = oneDecimal(sample.temperature_celsius, "°C");
+  byId("storage").textContent = `Boot ${oneDecimal(sample.boot_available_percent, "%")} free`;
   byId("source").textContent = value(sample.selected_source);
   byId("satellites").textContent = value(sample.satellites_used);
   byId("rtc").textContent = sample.rtc_available === true ? "Available" : sample.rtc_available === false ? "Unavailable" : "—";
@@ -319,5 +323,5 @@ function initializeDashboard() {
 
 if (typeof document !== "undefined") initializeDashboard();
 if (typeof module !== "undefined") {
-  module.exports = { buildScale, formatAxisNumber, formatAxisTick };
+  module.exports = { buildScale, formatAxisNumber, formatAxisTick, oneDecimal };
 }

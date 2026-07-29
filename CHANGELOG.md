@@ -5,6 +5,24 @@ All notable changes are documented here. PPSPi follows
 
 ## Unreleased
 
+## 0.2.4 - 2026-07-29
+
+### Changed
+
+- display root/boot free space and CPU temperature with one decimal place while
+  retaining full sanitized precision in dashboard history and API responses.
+
+### Fixed
+
+- restart the dashboard after application-update configuration regeneration so
+  an active server cannot retain a stale literal interface address.
+- make `ppstime-config apply` reconcile the regenerated dashboard settings and
+  restart the HTTP service after its old listener has stopped, allowing safe
+  changes between a literal address and the `0.0.0.0` wildcard.
+- validate the dashboard bind in the systemd service start path and bridge
+  activation through the newly installed deep-test executable for updates
+  performed by an older updater already loaded in memory.
+
 ## 0.2.3 - 2026-07-29
 
 ### Fixed
