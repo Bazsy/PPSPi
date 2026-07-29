@@ -1,6 +1,11 @@
 # PPSPi v0.2.1 release readiness
 
-Status: **APPROVED FOR PUBLICATION WITH POST-PUBLICATION HARDWARE ACCEPTANCE**
+Status: **PUBLISHED WITHOUT ASSETS; SUPERSEDED BY v0.2.2**
+
+The release workflow failed during image installation before signing or upload
+because `systemctl enable --now` is invalid in pi-gen's systemd-less chroot. No
+release asset was attached. The published tag remains immutable; v0.2.2 carries
+the reviewed fix and is the first deployable dashboard-default patch.
 
 This patch publishes the production-signed application bundle required to test
 the real v0.2.0-to-v0.2.1 update on the running appliance. The maintainer has

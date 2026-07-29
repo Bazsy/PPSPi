@@ -172,9 +172,14 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("DynamicUser=true", image_validator)
         self.assertIn("PrivateNetwork=true", image_validator)
         self.assertIn(
-            "systemctl enable --now ppstime-dashboard.service ppstime-dashboard-sample.timer",
+            "systemctl enable ppstime-dashboard.service ppstime-dashboard-sample.timer",
             install_script,
         )
+        self.assertIn(
+            "systemctl start ppstime-dashboard.service ppstime-dashboard-sample.timer",
+            install_script,
+        )
+        self.assertNotIn("systemctl enable --now ppstime-dashboard", install_script)
         self.assertNotIn(
             "systemctl disable --now ppstime-dashboard.service",
             install_script,

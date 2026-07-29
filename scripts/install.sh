@@ -342,7 +342,8 @@ if [[ "${target_root}" == "/" && "${dry_run}" == "false" ]]; then
     fi
     if grep -qx 'DASHBOARD_ENABLED=true' /etc/ppstime/ppstime.env; then
         /usr/lib/ppstime/ppstime-dashboard preflight
-        systemctl enable --now ppstime-dashboard.service ppstime-dashboard-sample.timer
+        systemctl enable ppstime-dashboard.service ppstime-dashboard-sample.timer
+        systemctl start ppstime-dashboard.service ppstime-dashboard-sample.timer
     else
         systemctl disable ppstime-dashboard.service ppstime-dashboard-sample.timer || true
         systemctl stop ppstime-dashboard.service ppstime-dashboard-sample.timer || true

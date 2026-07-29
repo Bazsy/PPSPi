@@ -5,6 +5,14 @@ All notable changes are documented here. PPSPi follows
 
 ## Unreleased
 
+## 0.2.2 - 2026-07-29
+
+### Fixed
+
+- enable and start the default dashboard units with separate `systemctl`
+  operations so image installation works both on a running appliance and inside
+  pi-gen's systemd-less chroot.
+
 ## 0.2.1 - 2026-07-29
 
 ### Changed
