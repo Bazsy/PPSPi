@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import errno
+import fcntl
 import http.client
 import importlib.machinery
 import json
@@ -14,6 +16,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
+from unittest import mock
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CORE_ROOT = PROJECT_ROOT / "files" / "ppstime"
@@ -37,6 +40,15 @@ from ppstime_update import UpdateError, safe_payload_path, source_payload_files
 def load_dashboard() -> ModuleType:
     loader = importlib.machinery.SourceFileLoader("ppstime_dashboard", str(DASHBOARD_COMMAND))
     module = ModuleType(loader.name)
+    loader.exec_module(module)
+    return module
+
+
+def load_configure_profile() -> ModuleType:
+    command = PROJECT_ROOT / "scripts" / "configure-profile.py"
+    loader = importlib.machinery.SourceFileLoader("configure_profile", str(command))
+    module = ModuleType(loader.name)
+    module.__file__ = str(command)
     loader.exec_module(module)
     return module
 
@@ -130,6 +142,47 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             migrated = self.module.load_dashboard_config(config)
         self.assertEqual(migrated, self.config)
+
+    def test_configuration_regeneration_prepares_held_updater_lock(self) -> None:
+        module = load_configure_profile()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            proc_root = root / "proc"
+            parent = proc_root / "123"
+            parent.mkdir(parents=True)
+            (parent / "cmdline").write_bytes(
+                b"python3\0/usr/lib/ppstime/ppstime-update\0apply\0"
+            )
+            lock_path = root / "run/lock/ppstime-maintenance.lock"
+            lock_path.parent.mkdir(parents=True)
+            lock_path.write_text("", encoding="ascii")
+            os.chmod(lock_path, 0o600)
+            with lock_path.open("rb") as lock:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self.assertTrue(
+                    module.prepare_dashboard_update_lock(
+                        root,
+                        proc_root=proc_root,
+                        parent_pid=123,
+                    )
+                )
+                self.assertEqual(lock_path.stat().st_mode & 0o777, 0o600)
+            with self.assertRaisesRegex(ConfigError, "not held"):
+                module.prepare_dashboard_update_lock(
+                    root,
+                    proc_root=proc_root,
+                    parent_pid=123,
+                )
+            (parent / "cmdline").write_bytes(
+                b"python3\0/usr/lib/ppstime/not-the-updater\0ppstime-update\0"
+            )
+            self.assertFalse(
+                module.prepare_dashboard_update_lock(
+                    root,
+                    proc_root=proc_root,
+                    parent_pid=123,
+                )
+            )
 
     def test_closed_projection_excludes_raw_and_identifying_fields(self) -> None:
         payload = json.loads(json.dumps(self.fixture))
@@ -337,6 +390,157 @@ class DashboardTests(unittest.TestCase):
                 finally:
                     server.shutdown()
                     server.server_close()
+
+    def test_server_restarts_immediately_after_serving_request(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "dashboard.sqlite3"
+            self.module.write_sample(
+                database,
+                self.module.sanitize_health(self.fixture, datetime.now(timezone.utc)),
+                retention_hours=24,
+            )
+            server = self.module.DashboardServer(
+                ("127.0.0.1", 0),
+                self.module.DashboardHandler,
+                allowed_networks=(self.module.ipaddress.ip_network("127.0.0.1/32"),),
+                database=database,
+                asset_root=PROJECT_ROOT / "files" / "dashboard",
+            )
+            port = server.server_port
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=3) as client:
+                    client.sendall(b"GET / HTTP/1.0\r\nHost: localhost\r\n\r\n")
+                    response = b""
+                    while chunk := client.recv(4096):
+                        response += chunk
+                self.assertTrue(response.startswith(b"HTTP/1.0 200 OK\r\n"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+            replacement = self.module.DashboardServer(
+                ("127.0.0.1", port),
+                self.module.DashboardHandler,
+                allowed_networks=(self.module.ipaddress.ip_network("127.0.0.1/32"),),
+                database=database,
+                asset_root=PROJECT_ROOT / "files" / "dashboard",
+            )
+            replacement.server_close()
+
+    def test_preflight_retries_only_address_in_use(self) -> None:
+        attempts = [
+            OSError(errno.EADDRINUSE, "Address already in use"),
+            None,
+        ]
+
+        class Probe:
+            def setsockopt(self, *args: object) -> None:
+                pass
+
+            def bind(self, address: tuple[str, int]) -> None:
+                self_address = address
+                del self_address
+                failure = attempts.pop(0)
+                if failure is not None:
+                    raise failure
+
+            def close(self) -> None:
+                pass
+
+        with (
+            mock.patch.object(self.module.socket, "socket", side_effect=(Probe(), Probe())),
+            mock.patch.object(self.module.time, "sleep") as sleep,
+        ):
+            self.module.preflight(self.config, timeout=1.0, interval=0.1)
+        sleep.assert_called_once()
+
+        with (
+            mock.patch.object(
+                self.module.socket,
+                "socket",
+                return_value=Probe(),
+            ),
+            mock.patch.object(
+                Probe,
+                "bind",
+                side_effect=OSError(errno.EACCES, "Permission denied"),
+            ),
+            self.assertRaisesRegex(self.module.DashboardError, "Permission denied"),
+        ):
+            self.module.preflight(self.config, timeout=1.0, interval=0.1)
+
+    def test_server_waits_for_updater_lock_and_watches_runtime_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lock_path = root / "maintenance.lock"
+            lock_path.write_text("", encoding="ascii")
+            server = mock.Mock()
+            with lock_path.open("rb") as lock:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+                def release(_: float) -> None:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+                with mock.patch.object(self.module.time, "sleep", side_effect=release):
+                    self.module.wait_for_maintenance_lock(
+                        server, lock_path, interval=0.01
+                    )
+            server.service_actions.assert_called_once_with()
+
+    def test_maintenance_lock_validation_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "target"
+            target.write_text("", encoding="ascii")
+            lock = root / "maintenance.lock"
+            lock.symlink_to(target)
+            with self.assertRaisesRegex(self.module.DashboardError, "cannot read"):
+                self.module.wait_for_maintenance_lock(mock.Mock(), lock)
+
+    def test_systemd_open_file_requires_exact_named_descriptor(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            lock = Path(temporary) / "maintenance.lock"
+            lock.write_text("", encoding="ascii")
+            with lock.open("rb") as stream:
+                descriptor = os.dup(stream.fileno())
+                try:
+                    with (
+                        mock.patch.dict(
+                            os.environ,
+                            {
+                                "LISTEN_PID": str(os.getpid()),
+                                "LISTEN_FDS": "1",
+                                "LISTEN_FDNAMES": "maintenance-lock",
+                            },
+                            clear=False,
+                        ),
+                        mock.patch.object(
+                            self.module,
+                            "SYSTEMD_FD_START",
+                            descriptor,
+                        ),
+                    ):
+                        inherited = self.module.systemd_open_file("maintenance-lock")
+                    self.assertIsNotNone(inherited)
+                    os.close(inherited)
+                finally:
+                    os.close(descriptor)
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "LISTEN_PID": str(os.getpid()),
+                        "LISTEN_FDS": "1",
+                        "LISTEN_FDNAMES": "wrong-name",
+                    },
+                    clear=False,
+                ),
+                self.assertRaisesRegex(self.module.DashboardError, "unavailable"),
+            ):
+                self.module.systemd_open_file("maintenance-lock")
 
     def test_http_get_head_headers_methods_ranges_and_exact_routes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -568,6 +772,10 @@ console.log(JSON.stringify(result));
         timer = (systemd / "ppstime-dashboard-sample.timer").read_text(encoding="utf-8")
         self.assertIn("ExecStartPre=/usr/lib/ppstime/ppstime-dashboard preflight", server)
         self.assertIn("ExecStart=/usr/lib/ppstime/ppstime-dashboard serve", server)
+        self.assertIn(
+            "OpenFile=/run/lock/ppstime-maintenance.lock:maintenance-lock:read-only",
+            server,
+        )
         self.assertIn("DynamicUser=true", server)
         self.assertIn("ProtectSystem=strict", server)
         self.assertIn("CapabilityBoundingSet=", server)
@@ -592,6 +800,7 @@ console.log(JSON.stringify(result));
             "etc/systemd/system/ppstime-dashboard.service",
             "etc/systemd/system/ppstime-dashboard-sample.service",
             "etc/systemd/system/ppstime-dashboard-sample.timer",
+            "usr/lib/tmpfiles.d/ppstime.conf",
         }
         self.assertTrue(expected.issubset(payload))
         self.assertEqual(

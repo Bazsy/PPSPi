@@ -252,6 +252,10 @@ done
 copy_file "${SOURCE_ROOT}/files/udev/80-ppstime.rules" "/etc/udev/rules.d/80-ppstime.rules" 0644
 copy_file "${SOURCE_ROOT}/files/modules-load.d/ppstime.conf" \
     "/etc/modules-load.d/ppstime.conf" 0644
+copy_file "${SOURCE_ROOT}/files/tmpfiles.d/ppstime.conf" \
+    "/usr/lib/tmpfiles.d/ppstime.conf" 0644
+run install -d -m 0755 "$(rooted /run/lock)"
+run install -m 0600 /dev/null "$(rooted /run/lock/ppstime-maintenance.lock)"
 for unit_file in "${SOURCE_ROOT}"/files/systemd/*.service "${SOURCE_ROOT}"/files/systemd/*.timer; do
     copy_file "${unit_file}" "/etc/systemd/system/$(basename "${unit_file}")" 0644
 done

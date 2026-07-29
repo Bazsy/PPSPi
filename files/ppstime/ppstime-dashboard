@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
+import fcntl
 import http.client
 import ipaddress
 import json
@@ -26,7 +28,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, urlsplit
 
-from ppstime_core import ConfigError, parse_env_file, split_cidrs, validate_config
+from ppstime_core import (
+    ConfigError,
+    parse_env_file,
+    split_cidrs,
+    validate_config,
+)
 
 SCHEMA_VERSION = 1
 HEALTH_SCHEMA_VERSION = 3
@@ -34,6 +41,12 @@ DEFAULT_CONFIG = Path("/etc/ppstime/ppstime.env")
 DEFAULT_DATABASE = Path("/var/lib/ppstime-dashboard/dashboard.sqlite3")
 DEFAULT_ASSET_ROOT = Path("/usr/share/ppstime/dashboard")
 DEFAULT_HEALTH_COMMAND = Path("/usr/lib/ppstime/ppstime-health")
+DEFAULT_MAINTENANCE_LOCK = Path("/run/lock/ppstime-maintenance.lock")
+BIND_SETTLE_TIMEOUT_SECONDS = 70.0
+BIND_SETTLE_INTERVAL_SECONDS = 1.0
+UPDATE_GATE_INTERVAL_SECONDS = 0.25
+SYSTEMD_FD_START = 3
+MAX_SYSTEMD_FDS = 16
 MAX_HEALTH_BYTES = 256 * 1024
 MAX_DATABASE_BYTES = 8 * 1024 * 1024
 DATABASE_PAGE_SIZE = 4096
@@ -679,7 +692,7 @@ class RateLimiter:
 
 class DashboardServer(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = False
+    allow_reuse_address = True
 
     def __init__(
         self,
@@ -1083,32 +1096,121 @@ def serve(args: argparse.Namespace, config: Mapping[str, str]) -> int:
         watched_paths=(args.config, Path(__file__)),
     )
     try:
+        wait_for_maintenance_lock(
+            server,
+            args.maintenance_lock,
+            descriptor=systemd_open_file("maintenance-lock"),
+        )
         server.serve_forever(poll_interval=0.5)
     finally:
         server.server_close()
     return 0
 
 
-def preflight(config: Mapping[str, str]) -> int:
+def systemd_open_file(name: str) -> int | None:
+    """Duplicate one exact descriptor supplied by systemd OpenFile=."""
+
+    raw_pid = os.environ.get("LISTEN_PID")
+    raw_count = os.environ.get("LISTEN_FDS")
+    raw_names = os.environ.get("LISTEN_FDNAMES")
+    if raw_pid is None and raw_count is None and raw_names is None:
+        return None
+    try:
+        pid = int(raw_pid or "")
+        count = int(raw_count or "")
+    except ValueError as exc:
+        raise DashboardError("systemd descriptor metadata is invalid") from exc
+    names = (raw_names or "").split(":") if raw_names else []
+    if pid != os.getpid() or not 0 < count <= MAX_SYSTEMD_FDS or len(names) != count:
+        raise DashboardError("systemd descriptor metadata is invalid")
+    matches = [index for index, candidate in enumerate(names) if candidate == name]
+    if len(matches) != 1:
+        raise DashboardError("dashboard maintenance descriptor is unavailable")
+    try:
+        descriptor = os.dup(SYSTEMD_FD_START + matches[0])
+        os.set_inheritable(descriptor, False)
+    except OSError as exc:
+        raise DashboardError(f"cannot duplicate dashboard maintenance lock: {exc}") from exc
+    if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+        os.close(descriptor)
+        raise DashboardError("dashboard maintenance lock is unsafe")
+    return descriptor
+
+
+def wait_for_maintenance_lock(
+    server: DashboardServer,
+    lock_path: Path,
+    *,
+    descriptor: int | None = None,
+    interval: float = UPDATE_GATE_INTERVAL_SECONDS,
+) -> None:
+    """Do not accept clients until the transaction controlling our files exits."""
+
+    if descriptor is None:
+        try:
+            descriptor = os.open(
+                lock_path,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            )
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise DashboardError("dashboard maintenance lock is unsafe")
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise DashboardError(
+                f"cannot read dashboard maintenance lock: {exc}"
+            ) from exc
+    try:
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                server.service_actions()
+                time.sleep(interval)
+                continue
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            return
+    finally:
+        os.close(descriptor)
+
+
+def preflight(
+    config: Mapping[str, str],
+    *,
+    timeout: float = BIND_SETTLE_TIMEOUT_SECONDS,
+    interval: float = BIND_SETTLE_INTERVAL_SECONDS,
+) -> int:
     bind = config["DASHBOARD_BIND"]
     family = socket.AF_INET6 if ":" in bind else socket.AF_INET
-    probe = socket.socket(family, socket.SOCK_STREAM)
-    try:
-        if family == socket.AF_INET6:
-            probe.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-        probe.bind((bind, int(config["DASHBOARD_PORT"])))
-    except OSError as exc:
-        raise DashboardError(f"cannot bind configured dashboard address: {exc}") from exc
-    finally:
-        probe.close()
-    return 0
+    deadline = time.monotonic() + timeout
+    while True:
+        probe = socket.socket(family, socket.SOCK_STREAM)
+        try:
+            if family == socket.AF_INET6:
+                probe.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind((bind, int(config["DASHBOARD_PORT"])))
+            return 0
+        except OSError as exc:
+            if exc.errno != errno.EADDRINUSE or time.monotonic() >= deadline:
+                raise DashboardError(
+                    f"cannot bind configured dashboard address: {exc}"
+                ) from exc
+            time.sleep(min(interval, max(0.0, deadline - time.monotonic())))
+        finally:
+            probe.close()
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
+    parser.add_argument(
+        "--maintenance-lock",
+        type=Path,
+        default=DEFAULT_MAINTENANCE_LOCK,
+        help=argparse.SUPPRESS,
+    )
     subparsers = parser.add_subparsers(dest="action", required=True)
     sample_parser = subparsers.add_parser("sample", help="persist one sanitized health sample")
     sample_parser.add_argument("--health-command", type=Path, default=DEFAULT_HEALTH_COMMAND)

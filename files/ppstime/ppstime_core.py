@@ -739,6 +739,30 @@ def atomic_write(path: Path, content: str, *, mode: int = 0o644) -> bool:
     return True
 
 
+def application_update_parent(
+    *, proc_root: Path = Path("/proc"), parent_pid: int | None = None
+) -> bool:
+    """Return whether the direct parent is the PPSPi application updater."""
+
+    pid = os.getppid() if parent_pid is None else parent_pid
+    try:
+        raw_command = (proc_root / str(pid) / "cmdline").read_bytes().split(b"\0")
+    except OSError:
+        return False
+    command = [
+        part.decode("utf-8", errors="ignore") for part in raw_command if part
+    ]
+    if not command:
+        return False
+    if Path(command[0]).name == "ppstime-update":
+        return True
+    return (
+        Path(command[0]).name.startswith("python")
+        and len(command) > 1
+        and Path(command[1]).name == "ppstime-update"
+    )
+
+
 def run_command(command: Sequence[str], *, timeout: float = 10.0) -> CommandResult:
     """Run a diagnostic command with bounded execution and normalized output."""
 
