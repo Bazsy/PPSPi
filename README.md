@@ -10,10 +10,10 @@ kernel-timestamped pulse-per-second events, Chrony, and the HAT's hardware RTC
 while staying close to the standard Raspberry Pi OS appliance model.
 
 > [!IMPORTANT]
-> PPSPi is early-stage software. Version 0.2.0 passed the available acceptance
-> scope on the documented Raspberry Pi 4 and Uputronics Rev 6.4 target. A real
-> reboot-requiring OS update, production application update/rollback, direct-LAN
-> dashboard measurement, and public-image smoke remain explicitly deferred to
+> PPSPi is early-stage software. Version 0.2.1 retains the v0.2.0 hardware-tested
+> timing baseline and changes the dashboard's startup/network defaults. Its real
+> signed in-place update/rollback, direct-LAN boundary measurement, and
+> public-image smoke remain explicitly tracked in
 > [issue #95](https://github.com/Bazsy/PPSPi/issues/95). Do not use PPSPi as a
 > sole production time source.
 
@@ -33,7 +33,7 @@ while staying close to the standard Raspberry Pi OS appliance model.
 
 | Support level | Raspberry Pi | GNSS/PPS hardware | Status |
 | --- | --- | --- | --- |
-| Release-tested | Raspberry Pi 4 Model B Rev 1.5 | Uputronics GPS/RTC Expansion Board Rev 6.4 using the V6.0+ profile | Available in v0.2.0 |
+| Release-tested | Raspberry Pi 4 Model B Rev 1.5 | Uputronics GPS/RTC Expansion Board Rev 6.4 using the V6.0+ profile | Available in v0.2.1 |
 | Planned | Pi 3 B/B+, CM4, Pi 5 Model B | Exact products named in roadmap issues | Not yet supported; contributors needed |
 
 CI verifies that the Pi 4 model policy is accepted and that Pi 3, Pi 5, Pi 400,
@@ -313,6 +313,9 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - [v0.2.0 hardware report](docs/hardware-test-report-v0.2.0.md)
 - [v0.2.0 release readiness](docs/release-readiness-v0.2.0.md)
 - [v0.2.0 release notes](docs/release-notes-v0.2.0.md)
+- [v0.2.1 hardware report](docs/hardware-test-report-v0.2.1.md)
+- [v0.2.1 release readiness](docs/release-readiness-v0.2.1.md)
+- [v0.2.1 release notes](docs/release-notes-v0.2.1.md)
 - [Development](docs/development.md)
 - [Release process](docs/release-process.md)
 

@@ -5,6 +5,8 @@ All notable changes are documented here. PPSPi follows
 
 ## Unreleased
 
+## 0.2.1 - 2026-07-29
+
 ### Changed
 
 - enable the read-only dashboard automatically, bind it to every IPv4 interface
