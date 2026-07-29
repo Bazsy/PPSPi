@@ -4,6 +4,7 @@ After=network.target ppstime-dashboard-sample.service
 
 [Service]
 Type=simple
+OpenFile=/run/lock/ppstime-maintenance.lock:maintenance-lock:read-only
 ExecStartPre=/usr/lib/ppstime/ppstime-dashboard preflight
 ExecStart=/usr/lib/ppstime/ppstime-dashboard serve
 DynamicUser=true

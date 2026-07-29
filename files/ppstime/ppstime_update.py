@@ -53,6 +53,7 @@ ALLOWED_EXACT = frozenset(
         "etc/systemd/system/chrony.service.d/ppstime.conf",
         "etc/udev/rules.d/80-ppstime.rules",
         "etc/modules-load.d/ppstime.conf",
+        "usr/lib/tmpfiles.d/ppstime.conf",
     }
 )
 MANIFEST_KEYS = frozenset(
@@ -449,6 +450,8 @@ def source_payload_files(source_root: Path) -> list[tuple[Path, str, int]]:
         files.append((source, f"etc/udev/rules.d/{source.name}", 0o644))
     for source in sorted((source_root / "files" / "modules-load.d").glob("*.conf")):
         files.append((source, f"etc/modules-load.d/{source.name}", 0o644))
+    for source in sorted((source_root / "files" / "tmpfiles.d").glob("*.conf")):
+        files.append((source, f"usr/lib/tmpfiles.d/{source.name}", 0o644))
     return sorted(files, key=lambda item: item[1])
 
 

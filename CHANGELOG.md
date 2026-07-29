@@ -5,6 +5,17 @@ All notable changes are documented here. PPSPi follows
 
 ## Unreleased
 
+### Fixed
+
+- allow an immediate dashboard restart after serving HTTP clients by using
+  consistent `SO_REUSEADDR` semantics in bind preflight and the real server.
+- settle an older dashboard listener's TCP state during a signed update and
+  keep the newly bound server from accepting clients until the updater releases
+  its kernel maintenance lock. Systemd passes the root-only lock descriptor to
+  the sandboxed server, so rollback can restore an older non-reuse server
+  without inheriting candidate-created `TIME_WAIT` connections or weakening
+  lock-file permissions.
+
 ## 0.2.4 - 2026-07-29
 
 ### Changed

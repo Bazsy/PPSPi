@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
+import os
 import shutil
+import stat
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +19,7 @@ sys.path.insert(0, str(SOURCE_CORE if SOURCE_CORE.exists() else Path(__file__).r
 
 from ppstime_core import (  # noqa: E402
     ConfigError,
+    application_update_parent,
     atomic_write,
     config_to_env,
     load_config,
@@ -28,6 +33,8 @@ from ppstime_core import (  # noqa: E402
     render_unattended_upgrades,
     update_managed_block,
 )
+
+MAINTENANCE_LOCK = "/run/lock/ppstime-maintenance.lock"
 
 
 def parse_args() -> argparse.Namespace:
@@ -75,6 +82,40 @@ def backup_if_changing(path: Path, new_content: str, *, dry_run: bool) -> None:
     shutil.copy2(path, backup_path)
 
 
+def prepare_dashboard_update_lock(
+    root: Path,
+    *,
+    proc_root: Path = Path("/proc"),
+    parent_pid: int | None = None,
+) -> bool:
+    """Make the updater's locked regular file readable by the dashboard."""
+
+    if not application_update_parent(proc_root=proc_root, parent_pid=parent_pid):
+        return False
+    lock_path = rooted(root, MAINTENANCE_LOCK)
+    try:
+        descriptor = os.open(
+            lock_path,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        )
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ConfigError("application update lock is unsafe")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            pass
+        else:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            raise ConfigError("application update lock is not held")
+    except OSError as exc:
+        raise ConfigError(f"cannot prepare dashboard update lock: {exc}") from exc
+    finally:
+        with contextlib.suppress(UnboundLocalError):
+            os.close(descriptor)
+    return True
+
+
 def main() -> int:
     args = parse_args()
     try:
@@ -97,6 +138,9 @@ def main() -> int:
         if args.validate_only:
             print(f"Configuration valid for profile {config['PPSTIME_PROFILE']}")
             return 0
+
+        if not args.dry_run:
+            prepare_dashboard_update_lock(root)
 
         generated = {
             rooted(root, "/etc/ppstime/ppstime.env"): (config_to_env(config), 0o644),

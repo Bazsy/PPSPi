@@ -140,6 +140,13 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue(
                 (root / "etc/systemd/system/ppstime-update-recovery.service").is_file()
             )
+            self.assertEqual(
+                stat.S_IMODE(
+                    (root / "run/lock/ppstime-maintenance.lock").stat().st_mode
+                ),
+                0o600,
+            )
+            self.assertTrue((root / "usr/lib/tmpfiles.d/ppstime.conf").is_file())
             self.assertTrue(
                 (root / "usr/share/ppstime/application-update.pub")
                 .read_text(encoding="ascii")
