@@ -5,6 +5,8 @@ All notable changes are documented here. PPSPi follows
 
 ## Unreleased
 
+## 0.2.5 - 2026-07-29
+
 ### Fixed
 
 - allow an immediate dashboard restart after serving HTTP clients by using

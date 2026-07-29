@@ -10,10 +10,11 @@ kernel-timestamped pulse-per-second events, Chrony, and the HAT's hardware RTC
 while staying close to the standard Raspberry Pi OS appliance model.
 
 > [!IMPORTANT]
-> PPSPi is early-stage software. Version 0.2.4 retains the v0.2.0 hardware-tested
-> timing baseline. A real signed v0.2.3 in-place update passed, and v0.2.4
-> corrects the dashboard activation defect found during its acceptance. Local
-> rollback/reapply, routed denial, and public-image smoke remain tracked in
+> PPSPi is early-stage software. Version 0.2.5 retains the v0.2.0 hardware-tested
+> timing baseline. A real signed v0.2.3 in-place update passed. The v0.2.4 apply
+> exposed an immediate dashboard-restart defect and rolled back safely; v0.2.5
+> corrects that failure. Physical v0.2.5 apply, local rollback/reapply, routed
+> denial, and public-image smoke remain tracked in
 > [issue #95](https://github.com/Bazsy/PPSPi/issues/95). Do not use PPSPi as a
 > sole production time source.
 
@@ -33,7 +34,7 @@ while staying close to the standard Raspberry Pi OS appliance model.
 
 | Support level | Raspberry Pi | GNSS/PPS hardware | Status |
 | --- | --- | --- | --- |
-| Release-tested | Raspberry Pi 4 Model B Rev 1.5 | Uputronics GPS/RTC Expansion Board Rev 6.4 using the V6.0+ profile | Available in v0.2.4 |
+| Release-tested | Raspberry Pi 4 Model B Rev 1.5 | Uputronics GPS/RTC Expansion Board Rev 6.4 using the V6.0+ profile | Available in v0.2.5 |
 | Planned | Pi 3 B/B+, CM4, Pi 5 Model B | Exact products named in roadmap issues | Not yet supported; contributors needed |
 
 CI verifies that the Pi 4 model policy is accepted and that Pi 3, Pi 5, Pi 400,
@@ -325,6 +326,9 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md).
 - [v0.2.4 hardware report](docs/hardware-test-report-v0.2.4.md)
 - [v0.2.4 release readiness](docs/release-readiness-v0.2.4.md)
 - [v0.2.4 release notes](docs/release-notes-v0.2.4.md)
+- [v0.2.5 hardware report](docs/hardware-test-report-v0.2.5.md)
+- [v0.2.5 release readiness](docs/release-readiness-v0.2.5.md)
+- [v0.2.5 release notes](docs/release-notes-v0.2.5.md)
 - [Development](docs/development.md)
 - [Release process](docs/release-process.md)
 
