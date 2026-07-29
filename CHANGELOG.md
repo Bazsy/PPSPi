@@ -5,6 +5,8 @@ All notable changes are documented here. PPSPi follows
 
 ## Unreleased
 
+## 0.2.6 - 2026-07-29
+
 ### Fixed
 
 - keep same-series application archives consumable by the immutable v0.2.3
