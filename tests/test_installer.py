@@ -146,7 +146,15 @@ class InstallerTests(unittest.TestCase):
                 ),
                 0o600,
             )
-            self.assertTrue((root / "usr/lib/tmpfiles.d/ppstime.conf").is_file())
+            lock_service = (
+                root
+                / "etc/systemd/system/ppstime-dashboard-lock.service"
+            )
+            self.assertTrue(lock_service.is_file())
+            self.assertIn(
+                "ExecStart=/usr/lib/ppstime/ppstime-update prepare-lock",
+                lock_service.read_text(encoding="utf-8"),
+            )
             self.assertTrue(
                 (root / "usr/share/ppstime/application-update.pub")
                 .read_text(encoding="ascii")

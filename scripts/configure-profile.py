@@ -99,8 +99,13 @@ def prepare_dashboard_update_lock(
             os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
         )
         metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_gid != os.getegid()
+        ):
             raise ConfigError("application update lock is unsafe")
+        os.fchmod(descriptor, 0o600)
         try:
             fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
         except BlockingIOError:

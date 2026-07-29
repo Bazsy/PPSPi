@@ -5,6 +5,14 @@ All notable changes are documented here. PPSPi follows
 
 ## Unreleased
 
+### Fixed
+
+- keep same-series application archives consumable by the immutable v0.2.3
+  updater by replacing the new out-of-boundary tmpfiles member with an allowed
+  root oneshot unit. The unit creates or validates the dashboard maintenance
+  lock without replacing an updater-held inode and makes it available after a
+  cold boot.
+
 ## 0.2.5 - 2026-07-29
 
 ### Fixed
