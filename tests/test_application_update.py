@@ -430,6 +430,95 @@ class ApplicationUpdateTests(unittest.TestCase):
             transaction = json.loads(transaction_path.read_text(encoding="ascii"))
             self.assertEqual(transaction["state"], "ROLLED_BACK")
 
+    def test_post_activation_persistence_failure_rolls_back_before_reactivation(
+        self,
+    ) -> None:
+        module = load_command()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            origin_path = root / "var/lib/ppstime/install-origin.json"
+            origin_path.parent.mkdir(parents=True)
+            origin_path.write_text(
+                '{"adopted":false,"git_commit":null,"origin":"image",'
+                '"schema_version":1,"version":"0.2.0"}\n',
+                encoding="ascii",
+            )
+            relative = "usr/lib/ppstime/ppstime-dashboard"
+            destination = root / relative
+            destination.parent.mkdir(parents=True)
+            destination.write_bytes(b"old dashboard")
+            os.chmod(destination, 0o755)
+            staging = root / "prepared"
+            staged = staging / relative
+            staged.parent.mkdir(parents=True)
+            staged.write_bytes(b"new dashboard")
+            archive = root / "ppspi-0.2.1-application.tar.gz"
+            archive.write_bytes(b"archive")
+            manifest = manifest_for(
+                "0.2.1",
+                archive,
+                [
+                    {
+                        "path": relative,
+                        "size": len(b"new dashboard"),
+                        "sha256": hashlib.sha256(b"new dashboard").hexdigest(),
+                        "mode": 0o755,
+                    }
+                ],
+            )
+            args = self.args(root)
+            installation = root / args.installation_file.as_posix().lstrip("/")
+            real_atomic_json = module.atomic_json
+            events: list[str] = []
+
+            def persist(path: Path, value: dict[str, object]) -> None:
+                if path == installation and not path.exists():
+                    events.append("persistence_failed")
+                    raise OSError("injected installation identity failure")
+                real_atomic_json(path, value)
+
+            def restore(
+                restore_root: Path,
+                states: dict[str, dict[str, object]],
+            ) -> None:
+                del states
+                self.assertEqual(restore_root, root)
+                self.assertEqual(destination.read_bytes(), b"old dashboard")
+                events.append("unit_states_restored")
+
+            def activate(_root: Path, *, validate_health: bool = True) -> None:
+                events.append("activate_forward" if validate_health else "activate_rollback")
+
+            with (
+                patch.object(module, "prepare", return_value=(manifest, archive, staging)),
+                patch.object(module, "service_validation"),
+                patch.object(module, "candidate_configuration_validation"),
+                patch.object(module, "regenerate_configuration"),
+                patch.object(module, "atomic_json", side_effect=persist),
+                patch.object(module, "restore_unit_states", side_effect=restore),
+                patch.object(module, "activate", side_effect=activate),
+                self.assertRaisesRegex(OSError, "injected installation"),
+            ):
+                module.apply_update(args)
+            self.assertEqual(destination.read_bytes(), b"old dashboard")
+            self.assertFalse(installation.exists())
+            self.assertEqual(
+                events,
+                [
+                    "activate_forward",
+                    "persistence_failed",
+                    "unit_states_restored",
+                    "activate_rollback",
+                ],
+            )
+            transaction_path = next(
+                (root / "var/lib/ppstime/application-updates").glob(
+                    "*/transaction.json"
+                )
+            )
+            transaction = json.loads(transaction_path.read_text(encoding="ascii"))
+            self.assertEqual(transaction["state"], "ROLLED_BACK")
+
     def test_activation_reports_failed_health_checks(self) -> None:
         module = load_command()
         results = (
@@ -462,6 +551,25 @@ class ApplicationUpdateTests(unittest.TestCase):
             self.assertRaisesRegex(UpdateError, "chrony_synchronized"),
         ):
             module.activate(Path("/"))
+
+    def test_activation_restarts_dashboard_with_regenerated_configuration(self) -> None:
+        module = load_command()
+        results = (
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess([], 0, "", ""),
+        )
+        with patch.object(module, "run_command", side_effect=results) as run:
+            module.activate(Path("/"), validate_health=False)
+        self.assertEqual(
+            run.call_args_list[1].args[0],
+            [
+                "systemctl",
+                "try-restart",
+                "chrony.service",
+                "gpsd.service",
+                "ppstime-dashboard.service",
+            ],
+        )
 
     def test_dashboard_reconciliation_enables_and_starts_server(self) -> None:
         module = load_command()

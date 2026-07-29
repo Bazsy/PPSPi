@@ -474,7 +474,15 @@ def activate(root: Path, *, validate_health: bool = True) -> None:
     reload_result = run_command(["systemctl", "daemon-reload"])
     if reload_result.returncode != 0:
         raise UpdateError("systemd daemon reload failed")
-    restart = run_command(["systemctl", "try-restart", "chrony.service", "gpsd.service"])
+    restart = run_command(
+        [
+            "systemctl",
+            "try-restart",
+            "chrony.service",
+            "gpsd.service",
+            "ppstime-dashboard.service",
+        ]
+    )
     if restart.returncode != 0:
         raise UpdateError("PPSPi service restart failed")
     if validate_health:

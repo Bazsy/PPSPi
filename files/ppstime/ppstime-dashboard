@@ -140,6 +140,20 @@ class DashboardError(ValueError):
     """Raised when dashboard input or persistent state is unsafe."""
 
 
+def runtime_file_identity(path: Path) -> tuple[int, int, int, int]:
+    """Return the identity of one regular runtime file watched for replacement."""
+
+    metadata = path.lstat()
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+        raise DashboardError(f"dashboard runtime file is unsafe: {path}")
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+    )
+
+
 def require_mapping(value: Any, name: str, keys: frozenset[str] | None = None) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise DashboardError(f"{name} must be an object")
@@ -675,6 +689,7 @@ class DashboardServer(ThreadingHTTPServer):
         allowed_networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...],
         database: Path,
         asset_root: Path,
+        watched_paths: tuple[Path, ...] = (),
     ) -> None:
         self.address_family = socket.AF_INET6 if ":" in address[0] else socket.AF_INET
         self.allowed_networks = allowed_networks
@@ -682,12 +697,28 @@ class DashboardServer(ThreadingHTTPServer):
         self.asset_root = asset_root
         self.rate_limiter = RateLimiter()
         self.request_slots = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
+        self.watched_files = {
+            path: runtime_file_identity(path) for path in watched_paths
+        }
         super().__init__(address, handler)
 
     def server_bind(self) -> None:
         if self.address_family == socket.AF_INET6:
             self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
         super().server_bind()
+
+    def service_actions(self) -> None:
+        """Exit after atomic config/executable replacement so systemd restarts us."""
+
+        for path, expected in self.watched_files.items():
+            try:
+                current = runtime_file_identity(path)
+            except OSError as exc:
+                raise DashboardError(
+                    f"dashboard runtime file became unavailable: {path}"
+                ) from exc
+            if current != expected:
+                raise DashboardError(f"dashboard runtime file changed: {path}")
 
     def verify_request(self, request: socket.socket, client_address: tuple[Any, ...]) -> bool:
         try:
@@ -1049,6 +1080,7 @@ def serve(args: argparse.Namespace, config: Mapping[str, str]) -> int:
         allowed_networks=allowed,
         database=args.database,
         asset_root=args.asset_root,
+        watched_paths=(args.config, Path(__file__)),
     )
     try:
         server.serve_forever(poll_interval=0.5)

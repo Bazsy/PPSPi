@@ -199,10 +199,9 @@ class ConfigTests(unittest.TestCase):
                 dashboard_calls = [
                     command
                     for command in calls
-                    if command[:3]
-                    in (
-                        ["systemctl", "enable", "--now"],
-                        ["systemctl", "disable", "--now"],
+                    if (
+                        command[:2] == ["systemctl", "enable"]
+                        or command[:3] == ["systemctl", "disable", "--now"]
                     )
                     and any(unit in command for unit in (
                         "ppstime-dashboard.service",
@@ -213,7 +212,7 @@ class ConfigTests(unittest.TestCase):
                     self.assertEqual(
                         dashboard_calls,
                         [
-                            ["systemctl", "enable", "--now", unit]
+                            ["systemctl", "enable", unit]
                             for unit in (
                                 "ppstime-dashboard.service",
                                 "ppstime-dashboard-sample.timer",
@@ -221,7 +220,12 @@ class ConfigTests(unittest.TestCase):
                         ],
                     )
                     self.assertIn(
-                        ["/usr/lib/ppstime/ppstime-dashboard", "preflight"], calls
+                        ["systemctl", "restart", "ppstime-dashboard.service"],
+                        calls,
+                    )
+                    self.assertIn(
+                        ["systemctl", "start", "ppstime-dashboard-sample.timer"],
+                        calls,
                     )
                 else:
                     self.assertEqual(
@@ -234,6 +238,53 @@ class ConfigTests(unittest.TestCase):
                             "ppstime-dashboard-sample.timer",
                         ]],
                     )
+
+    def test_config_apply_uses_regenerated_dashboard_migration(self) -> None:
+        module = self.load_config_command()
+        with tempfile.TemporaryDirectory() as temporary:
+            config_path = Path(temporary) / "ppstime.env"
+            legacy = dict(
+                self.config,
+                DASHBOARD_ENABLED="false",
+                DASHBOARD_BIND="127.0.0.1",
+                DASHBOARD_ALLOWED_CIDRS="127.0.0.1/32",
+            )
+            config_path.write_text(config_to_env(legacy), encoding="utf-8")
+            calls: list[list[str]] = []
+
+            def run(
+                command: list[str],
+                *_run_args: object,
+                **_kwargs: object,
+            ) -> subprocess.CompletedProcess[str]:
+                calls.append(command)
+                if command[0] == "/usr/lib/ppstime/configure-profile.py":
+                    config_path.write_text(
+                        config_to_env(self.config), encoding="utf-8"
+                    )
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch.object(
+                sys,
+                "argv",
+                ["ppstime-config", "--config", str(config_path), "apply"],
+            ), patch.object(module.os, "geteuid", return_value=0), patch.object(
+                module.subprocess, "run", side_effect=run
+            ):
+                self.assertEqual(module.main(), 0)
+        self.assertIn(
+            ["systemctl", "restart", "ppstime-dashboard.service"], calls
+        )
+        self.assertNotIn(
+            [
+                "systemctl",
+                "disable",
+                "--now",
+                "ppstime-dashboard.service",
+                "ppstime-dashboard-sample.timer",
+            ],
+            calls,
+        )
 
     def test_active_configuration_has_no_secret_keys(self) -> None:
         sensitive = ("PASSWORD", "SECRET", "TOKEN", "PRIVATE", "WIFI", "SSID", "KEY")

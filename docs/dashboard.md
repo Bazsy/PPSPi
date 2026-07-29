@@ -83,6 +83,10 @@ Available settings are:
 | `DASHBOARD_ALLOWED_CIDRS` | loopback and all RFC 1918 ranges | strict private/loopback CIDRs |
 | `DASHBOARD_RETENTION_HOURS` | `168` | 1 through 720 hours |
 
+The summary cards display root and boot free space plus CPU temperature with
+one decimal place. Sanitized history and API responses retain their validated
+numeric precision for graphing and analysis.
+
 Disable both the server and sampler with:
 
 ```console
@@ -176,6 +180,9 @@ validate the candidate units, snapshot dashboard files and unit state, apply the
 validated configuration, and reconcile both dashboard units from
 `DASHBOARD_ENABLED`. Failed updates and local rollback restore files, installed
 identity, and prior unit states through the existing transactional update path.
+The server watches the identities of its atomically replaced configuration and
+executable; replacement makes it exit so systemd starts the installed or
+restored version instead of retaining stale in-memory code or settings.
 An application update migrates only the exact v0.2.0 disabled/loopback default
 tuple to the current automatic private-LAN defaults. Any operator-customized
 dashboard setting is preserved. The active configuration is included in the

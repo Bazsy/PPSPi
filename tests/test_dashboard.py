@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.client
 import importlib.machinery
 import json
+import os
 import socket
 import sqlite3
 import subprocess
@@ -152,6 +153,8 @@ class DashboardTests(unittest.TestCase):
             self.assertNotIn(forbidden, serialized.lower())
         self.assertEqual(sample["timing_state"], "HEALTHY_PPS")
         self.assertEqual(sample["root_available_percent"], 42.25)
+        self.assertEqual(sample["boot_available_percent"], 63.5)
+        self.assertEqual(sample["temperature_celsius"], 48.75)
         self.assertEqual(sample["satellites_used"], 15)
         self.assertEqual(sample["system_offset_seconds"], 0.000000007)
         self.assertEqual(sample["root_dispersion_seconds"], 0.000560501)
@@ -293,6 +296,48 @@ class DashboardTests(unittest.TestCase):
             finally:
                 server.server_close()
 
+    def test_server_exits_after_atomic_runtime_file_replacement(self) -> None:
+        for watched_name in ("ppstime.env", "ppstime-dashboard"):
+            with self.subTest(path=watched_name), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                watched = root / watched_name
+                watched.write_text("old\n", encoding="utf-8")
+                server = self.module.DashboardServer(
+                    ("127.0.0.1", 0),
+                    self.module.DashboardHandler,
+                    allowed_networks=(
+                        self.module.ipaddress.ip_network("127.0.0.1/32"),
+                    ),
+                    database=root / "db",
+                    asset_root=PROJECT_ROOT / "files" / "dashboard",
+                    watched_paths=(watched,),
+                )
+                failures: list[BaseException] = []
+
+                def serve(
+                    active_server: object = server,
+                    captured_failures: list[BaseException] = failures,
+                ) -> None:
+                    try:
+                        active_server.serve_forever(poll_interval=0.01)
+                    except BaseException as exc:  # noqa: BLE001 - capture thread result
+                        captured_failures.append(exc)
+
+                thread = threading.Thread(target=serve, daemon=True)
+                try:
+                    thread.start()
+                    replacement = root / "replacement"
+                    replacement.write_text("restored\n", encoding="utf-8")
+                    os.replace(replacement, watched)
+                    thread.join(timeout=2)
+                    self.assertFalse(thread.is_alive())
+                    self.assertEqual(len(failures), 1)
+                    self.assertIsInstance(failures[0], self.module.DashboardError)
+                    self.assertIn("runtime file changed", str(failures[0]))
+                finally:
+                    server.shutdown()
+                    server.server_close()
+
     def test_http_get_head_headers_methods_ranges_and_exact_routes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -427,6 +472,14 @@ const result = {{
     constant: chart.buildScale([55, 55], {{}}),
     precision: chart.formatAxisTick(12.5, {{unit: 'µs'}}, 0),
     health: chart.formatAxisTick(3, {{labels: ['Error', 'Unsync', 'Fallback', 'Healthy']}}, 3),
+    root: chart.oneDecimal(83.89193159775925, '%'),
+    boot: chart.oneDecimal(85.2154380826185, '%'),
+    temperature: chart.oneDecimal(53.556, '°C'),
+    missing: chart.oneDecimal(null, '%'),
+    nan: chart.oneDecimal(NaN, '%'),
+    infinity: chart.oneDecimal(Infinity, '%'),
+    text: chart.oneDecimal('53.556', '°C'),
+    boolean: chart.oneDecimal(false, '%'),
 }};
 console.log(JSON.stringify(result));
 """
@@ -444,6 +497,14 @@ console.log(JSON.stringify(result));
         self.assertGreater(payload["constant"]["maximum"], 55)
         self.assertEqual(payload["precision"], "12.5 µs")
         self.assertEqual(payload["health"], "Healthy")
+        self.assertEqual(payload["root"], "83.9%")
+        self.assertEqual(payload["boot"], "85.2%")
+        self.assertEqual(payload["temperature"], "53.6°C")
+        self.assertEqual(payload["missing"], "—")
+        self.assertEqual(payload["nan"], "—")
+        self.assertEqual(payload["infinity"], "—")
+        self.assertEqual(payload["text"], "—")
+        self.assertEqual(payload["boolean"], "—")
 
     def test_raw_socket_request_and_header_bounds_apply_before_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -505,6 +566,7 @@ console.log(JSON.stringify(result));
         server = (systemd / "ppstime-dashboard.service").read_text(encoding="utf-8")
         sampler = (systemd / "ppstime-dashboard-sample.service").read_text(encoding="utf-8")
         timer = (systemd / "ppstime-dashboard-sample.timer").read_text(encoding="utf-8")
+        self.assertIn("ExecStartPre=/usr/lib/ppstime/ppstime-dashboard preflight", server)
         self.assertIn("ExecStart=/usr/lib/ppstime/ppstime-dashboard serve", server)
         self.assertIn("DynamicUser=true", server)
         self.assertIn("ProtectSystem=strict", server)

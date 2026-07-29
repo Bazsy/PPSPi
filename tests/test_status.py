@@ -17,7 +17,7 @@ CORE_PATH = PROJECT_ROOT / "files" / "ppstime"
 FIXTURES = PROJECT_ROOT / "tests" / "fixtures" / "stratum1"
 sys.path.insert(0, str(CORE_PATH))
 
-from ppstime_core import config_to_env, load_config, read_rtc_sysfs
+from ppstime_core import CommandResult, config_to_env, load_config, read_rtc_sysfs
 
 
 def load_test_command() -> ModuleType:
@@ -51,6 +51,12 @@ class StatusTests(unittest.TestCase):
                     proc_root=proc_root, parent_pid=123
                 )
             )
+            cmdline.write_bytes(b"python3\0/usr/lib/ppstime/other-tool\0ppstime-update\0")
+            self.assertFalse(
+                module.invoked_by_application_update(
+                    proc_root=proc_root, parent_pid=123
+                )
+            )
 
     def test_updater_validation_retries_until_hardware_settles(self) -> None:
         module = load_test_command()
@@ -75,6 +81,36 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(output, '{"ok":true}\n')
         self.assertEqual(run.call_count, 2)
         self.assertIn("--no-update-settle", run.call_args.args[0])
+
+    def test_updater_validation_activates_dashboard_from_new_payload(self) -> None:
+        module = load_test_command()
+        results = (
+            CommandResult(0, "", ""),
+            CommandResult(0, "active\n", ""),
+        )
+        with patch.object(module, "run_command", side_effect=results) as run:
+            check = module.activate_dashboard_for_application_update(
+                {"DASHBOARD_ENABLED": "true"}
+            )
+        self.assertIsNotNone(check)
+        self.assertEqual(check.status, "PASS")
+        self.assertEqual(
+            run.call_args_list[0].args[0],
+            ["systemctl", "restart", "ppstime-dashboard.service"],
+        )
+
+    def test_updater_validation_fails_if_dashboard_cannot_restart(self) -> None:
+        module = load_test_command()
+        results = (
+            CommandResult(1, "", "bind failed"),
+            CommandResult(3, "inactive\n", ""),
+        )
+        with patch.object(module, "run_command", side_effect=results):
+            check = module.activate_dashboard_for_application_update(
+                {"DASHBOARD_ENABLED": "true"}
+            )
+        self.assertIsNotNone(check)
+        self.assertEqual(check.status, "FAIL")
 
     def test_unprivileged_rtc_sysfs_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

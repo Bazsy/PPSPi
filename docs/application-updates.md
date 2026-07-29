@@ -45,19 +45,19 @@ onto an appliance.
 Check an exact release without changing the appliance:
 
 ```console
-sudo ppstime-update check --version 0.2.3 --public-key /secure/path/ppspi-update.pub
+sudo ppstime-update check --version 0.2.4 --public-key /secure/path/ppspi-update.pub
 ```
 
 Apply that exact verified release:
 
 ```console
-sudo ppstime-update apply --version 0.2.3 --yes
+sudo ppstime-update apply --version 0.2.4 --yes
 ```
 
 This updates the installed PPSPi application, static assets, profiles, and
 systemd units in place. It does not reflash the SD card or replace Raspberry Pi
 OS. A v0.2.0 image installation already contains the production public key and
-can apply a published, signed same-series release such as v0.2.3 directly.
+can apply a published, signed same-series release such as v0.2.4 directly.
 
 There is no branch, `latest`, tag-discovery, or implicit target resolution.
 Local/offline verification accepts the matching `--archive`, `--manifest`, and
@@ -135,7 +135,7 @@ To schedule one reviewed same-series release in the existing weekly maintenance
 window:
 
 ```console
-sudo ppstime-config set APP_UPDATE_VERSION 0.2.3
+sudo ppstime-config set APP_UPDATE_VERSION 0.2.4
 sudo ppstime-config set APP_UPDATES_ENABLED true
 sudo ppstime-config apply
 ```
