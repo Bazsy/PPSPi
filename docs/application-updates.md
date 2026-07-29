@@ -2,10 +2,11 @@
 
 PPSPi can replace only its application-owned runtime, static profiles, systemd
 units/drop-ins, udev rule, and modules-load rule from a signed release bundle.
-Application updates are disabled by default and never modify
-`/etc/ppstime/ppstime.env`, accounts, home directories, networking, SSH,
-cloud-init, boot customisation, package sources, or unrelated operating-system
-files.
+Application updates are disabled by default and preserve operator configuration,
+accounts, home directories, networking, SSH, cloud-init, package sources, and
+unrelated operating-system files. A release may migrate an exact recognized old
+default tuple in `/etc/ppstime/ppstime.env`; customized values are preserved and
+the complete active configuration participates in transactional rollback.
 
 This feature is available on the `0.2.x` development line. A v0 compatibility
 series is `major.minor` (`0.2`); from v1 onward it is the major version. Network
@@ -52,6 +53,11 @@ Apply that exact verified release:
 ```console
 sudo ppstime-update apply --version 0.2.1 --yes
 ```
+
+This updates the installed PPSPi application, static assets, profiles, and
+systemd units in place. It does not reflash the SD card or replace Raspberry Pi
+OS. A v0.2.0 image installation already contains the production public key and
+can apply a published, signed same-series release such as v0.2.1 directly.
 
 There is no branch, `latest`, tag-discovery, or implicit target resolution.
 Local/offline verification accepts the matching `--archive`, `--manifest`, and

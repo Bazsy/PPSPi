@@ -98,6 +98,13 @@ OS_MAINTENANCE_DEFAULTS = {
     "APP_UPDATE_VERSION": "",
 }
 DASHBOARD_DEFAULTS = {
+    "DASHBOARD_ENABLED": "true",
+    "DASHBOARD_BIND": "0.0.0.0",
+    "DASHBOARD_PORT": "8080",
+    "DASHBOARD_ALLOWED_CIDRS": "127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16",
+    "DASHBOARD_RETENTION_HOURS": "168",
+}
+LEGACY_DASHBOARD_DEFAULTS = {
     "DASHBOARD_ENABLED": "false",
     "DASHBOARD_BIND": "127.0.0.1",
     "DASHBOARD_PORT": "8080",
@@ -401,11 +408,14 @@ def validate_config(config: Mapping[str, str]) -> None:
         dashboard_bind = ipaddress.ip_address(config["DASHBOARD_BIND"])
     except ValueError as exc:
         raise ConfigError("DASHBOARD_BIND must be a literal IP address") from exc
-    if not any(
+    dashboard_wildcard = dashboard_bind == ipaddress.ip_address("0.0.0.0")
+    if not dashboard_wildcard and not any(
         dashboard_bind.version == network.version and dashboard_bind in network
         for network in DASHBOARD_LOCAL_NETWORKS
     ):
-        raise ConfigError("DASHBOARD_BIND must be a loopback or private LAN address")
+        raise ConfigError(
+            "DASHBOARD_BIND must be 0.0.0.0 or a loopback/private LAN address"
+        )
     try:
         dashboard_port = int(config["DASHBOARD_PORT"])
     except ValueError as exc:
@@ -433,7 +443,7 @@ def validate_config(config: Mapping[str, str]) -> None:
                 f"DASHBOARD_ALLOWED_CIDRS must contain only loopback or private LAN CIDRs: {cidr!r}"
             )
         dashboard_networks.append(network)
-    if not any(
+    if not dashboard_wildcard and not any(
         dashboard_bind.version == network.version and dashboard_bind in network
         for network in dashboard_networks
     ):
@@ -487,6 +497,20 @@ def dashboard_enabled(config: Mapping[str, str]) -> bool:
     """Return whether the local read-only dashboard is explicitly enabled."""
 
     return config["DASHBOARD_ENABLED"] == "true"
+
+
+def migrate_dashboard_defaults(config: Mapping[str, str]) -> dict[str, str]:
+    """Migrate only the exact v0.2.0 dashboard defaults to current defaults."""
+
+    migrated = dict(config)
+    # An explicit false value is indistinguishable from the shipped v0.2.0
+    # default only when every dashboard value still matches that exact tuple.
+    # Re-enabling that tuple is the intentional compatibility policy; changing
+    # any dashboard value makes it operator-customized and preserves it.
+    if all(config.get(key) == value for key, value in LEGACY_DASHBOARD_DEFAULTS.items()):
+        migrated.update(DASHBOARD_DEFAULTS)
+    validate_config(migrated)
+    return migrated
 
 
 def config_to_env(config: Mapping[str, str]) -> str:

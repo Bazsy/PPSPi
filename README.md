@@ -189,11 +189,14 @@ same-compatibility-series version and a configured minisign public key, and
 retain a local transactional rollback. See
 [verified application updates and rollback](docs/application-updates.md).
 
-Version 0.2.0 also includes a polished, dependency-free, read-only local
-dashboard. It is disabled and loopback-only by default, stores
-bounded sanitized history, and has no administrative endpoints or external
-requests. See the [optional read-only dashboard](docs/dashboard.md) before
-enabling LAN access.
+PPSPi includes a polished, dependency-free, read-only local dashboard. Current
+builds start it automatically on port 8080 across Ethernet and Wi-Fi IPv4
+addresses, while admitting only loopback and RFC 1918 peers. It stores bounded
+sanitized history and has no administrative endpoints or external requests. See
+the [read-only dashboard](docs/dashboard.md) for access and restriction options.
+The broad private-range default is intended for trusted LANs, and two-minute
+sampling creates about 720 bounded SQLite transactions per day; narrow or
+disable it on shared networks or storage-sensitive deployments.
 
 `ppstime-health` and the passive stateful monitor are available in v0.2.0. On a
 v0.2.0 installation, inspect confirmed appliance health and transition state
@@ -257,7 +260,8 @@ See the [release process](docs/release-process.md) for the exact gates.
 - SSH disabled until the owner enables it through Imager;
 - password SSH accepted for a trusted private LAN, provided the password is
   strong and unique and TCP port 22 is not exposed publicly;
-- optional web dashboard disabled by default, with no administrative API;
+- read-only web dashboard enabled on private IPv4 networks, with application
+  peer-CIDR checks and no administrative API;
 - NTP allowed by default from all RFC 1918 IPv4 and RFC 4193 IPv6 ULA ranges;
 - public, loopback, link-local, CGNAT, multicast, and test ranges rejected;
 - generated configuration uses least-privilege file modes;

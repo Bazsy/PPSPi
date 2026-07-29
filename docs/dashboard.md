@@ -1,10 +1,12 @@
 # Optional read-only dashboard
 
 PPSPi includes a small, dependency-free dashboard for viewing sanitized timing
-and host-health history from a trusted private network. It is **disabled by
-default** and binds only to IPv4 loopback by default. It is not an
-administrative interface: there are no write actions, login flow, command
-endpoints, raw diagnostic responses, or external requests.
+and host-health history from a trusted private network. It starts automatically,
+binds to all IPv4 interfaces, and admits loopback and RFC 1918 clients by
+default, so both Ethernet and Wi-Fi addresses work after boot without
+configuration. It is not an administrative interface: there are no write
+actions, login flow, command endpoints, raw diagnostic responses, or external
+requests.
 
 ## Architecture
 
@@ -41,47 +43,44 @@ in separate systemd units:
   `BaseHTTPRequestHandler`, and has no writable state directory.
 - `ppstime-dashboard-sample.timer` runs every two minutes with a small jitter.
 
-## Enable it safely
+## Open the dashboard
 
-Loopback-only access is useful for a local SSH tunnel:
+After boot, browse to port 8080 using the appliance hostname or either private
+IPv4 address, for example:
 
 ```console
-sudo ppstime-config set DASHBOARD_ENABLED true
-sudo ppstime-config apply
+http://ppspi:8080
+http://192.168.1.20:8080
 ```
 
-Then browse to `http://127.0.0.1:8080` on the Pi or forward that loopback port
-through an already trusted SSH connection.
+No PPSPi command is needed. The server and two-minute history sampler are enabled
+at installation and start automatically on later boots. `0.0.0.0` is a listen
+address, not a URL; use the Pi's hostname or current Ethernet/Wi-Fi address in a
+browser.
 
-For direct LAN access, configure a **literal address assigned to the Pi** and a
-matching narrow private CIDR. For example:
+To restrict access to one private subnet while continuing to listen on both
+interfaces:
 
 ```console
 sudo ppstime-config set DASHBOARD_ALLOWED_CIDRS 127.0.0.1/32,192.168.1.0/24
-sudo ppstime-config set DASHBOARD_BIND 192.168.1.20
-sudo ppstime-config set DASHBOARD_ALLOWED_CIDRS 192.168.1.0/24
-sudo ppstime-config set DASHBOARD_ENABLED true
 sudo ppstime-config apply
 ```
 
-The temporary overlap is intentional: every `set` validates the complete
-configuration, so neither the old nor new bind may ever fall outside the allow
-list during a fail-closed transition.
-
-`DASHBOARD_BIND` does not accept hostnames, wildcard addresses, public
-addresses, link-local addresses, CGNAT, multicast, or documentation ranges.
-Every allowed CIDR must be loopback, RFC 1918 IPv4, or RFC 4193 IPv6 ULA, and
-must cover the configured bind address. The service checks the socket peer
-address itself; forwarded identity headers are ignored.
+`DASHBOARD_BIND` accepts the IPv4 wildcard `0.0.0.0` or one literal
+loopback/private address. It does not accept hostnames, the IPv6 wildcard,
+public addresses, link-local addresses, CGNAT, multicast, or documentation
+ranges. Every allowed CIDR must be loopback, RFC 1918 IPv4, or RFC 4193 IPv6
+ULA. The service checks the socket peer address itself; forwarded identity
+headers are ignored. A wildcard bind does not bypass this peer check.
 
 Available settings are:
 
 | Key | Default | Bounds |
 | --- | --- | --- |
-| `DASHBOARD_ENABLED` | `false` | `true` or `false` |
-| `DASHBOARD_BIND` | `127.0.0.1` | literal loopback/private address |
+| `DASHBOARD_ENABLED` | `true` | `true` or `false` |
+| `DASHBOARD_BIND` | `0.0.0.0` | IPv4 wildcard or literal loopback/private address |
 | `DASHBOARD_PORT` | `8080` | 1024 through 65535 |
-| `DASHBOARD_ALLOWED_CIDRS` | `127.0.0.1/32` | strict private/loopback CIDRs |
+| `DASHBOARD_ALLOWED_CIDRS` | loopback and all RFC 1918 ranges | strict private/loopback CIDRs |
 | `DASHBOARD_RETENTION_HOURS` | `168` | 1 through 720 hours |
 
 Disable both the server and sampler with:
@@ -129,8 +128,9 @@ request target/header/body/asset/response size bounds. Access logging is disable
 so client addresses and query strings never enter journald.
 
 This is plain HTTP because PPSPi does not generate or manage a local TLS
-identity. Do not expose it to the internet or an untrusted network. Prefer the
-loopback default with an SSH tunnel when transport confidentiality is needed.
+identity. Do not expose it to the internet or an untrusted network. Disable it
+or restrict the allowed CIDRs when the attached network is not trusted; use a
+loopback bind with an SSH tunnel when transport confidentiality is needed.
 
 ## Bounded storage and microSD writes
 
@@ -148,10 +148,10 @@ writer connection enforces:
 The practical simplification for this release writes every two-minute sample
 directly to SQLite rather than buffering an hour in tmpfs. That is approximately
 720 durable transactions per day while enabled and therefore creates ongoing
-microSD writes. Keep the dashboard disabled when history is unnecessary, use a
-shorter retention period when appropriate, and use endurance-rated storage for
-long-lived appliances. The database remains bounded, but write endurance is a
-separate physical property.
+microSD writes. Disable the dashboard when history is unnecessary, use a shorter
+retention period when appropriate, and use endurance-rated storage for long-lived
+appliances. The database remains bounded, but write endurance is a separate
+physical property.
 
 ## Services, updates, and rollback
 
@@ -176,8 +176,11 @@ validate the candidate units, snapshot dashboard files and unit state, apply the
 validated configuration, and reconcile both dashboard units from
 `DASHBOARD_ENABLED`. Failed updates and local rollback restore files, installed
 identity, and prior unit states through the existing transactional update path.
-Old active configurations gain disabled dashboard defaults during supported
-configuration migration.
+An application update migrates only the exact v0.2.0 disabled/loopback default
+tuple to the current automatic private-LAN defaults. Any operator-customized
+dashboard setting is preserved. The active configuration is included in the
+transaction snapshot, so failed apply and local rollback restore the prior
+settings and unit state.
 
 ## Diagnostics and acceptance
 
@@ -187,8 +190,8 @@ state plus database size, sample count, and oldest/latest timestamps; it
 intentionally excludes sample rows, bind addresses, and allowed CIDRs.
 
 Automated tests validate the fixture-driven UI data contract, privacy
-projection, ranges, methods, security headers, storage bounds, default-disabled
-state, signed inventory, and unit sandbox declarations. On supported hardware, manually
-verify responsive layout, keyboard range controls, two-minute refresh, loopback
-access, one explicitly allowed LAN client, and rejection from an out-of-CIDR
-client.
+projection, ranges, methods, security headers, storage bounds, automatic
+private-LAN defaults, signed inventory, and unit sandbox declarations. On
+supported hardware, manually verify responsive layout, keyboard range controls,
+two-minute refresh, loopback access, one explicitly allowed LAN client, and
+rejection from an out-of-CIDR client.

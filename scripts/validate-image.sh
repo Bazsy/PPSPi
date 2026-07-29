@@ -258,8 +258,8 @@ for dashboard_unit in ppstime-dashboard.service ppstime-dashboard-sample.timer; 
         sudo systemctl --root="${root_mount}" is-enabled "${dashboard_unit}" \
             2> /dev/null || true
     )"
-    [[ "${dashboard_state}" == "disabled" ]] || {
-        printf 'PPSPi image validation error: %s state is %s, expected disabled\n' \
+    [[ "${dashboard_state}" == "enabled" ]] || {
+        printf 'PPSPi image validation error: %s state is %s, expected enabled\n' \
             "${dashboard_unit}" "${dashboard_state:-unknown}" >&2
         exit 1
     }
@@ -280,9 +280,10 @@ sudo grep -Fxq 'HOST_DISK_WARNING_PERCENT=15.0' \
     "${root_mount}/etc/ppstime/ppstime.env"
 sudo grep -Fxq 'APP_UPDATES_ENABLED=false' "${root_mount}/etc/ppstime/ppstime.env"
 sudo grep -Fxq "APP_UPDATE_VERSION=''" "${root_mount}/etc/ppstime/ppstime.env"
-sudo grep -Fxq 'DASHBOARD_ENABLED=false' "${root_mount}/etc/ppstime/ppstime.env"
-sudo grep -Fxq 'DASHBOARD_BIND=127.0.0.1' "${root_mount}/etc/ppstime/ppstime.env"
-sudo grep -Fxq 'DASHBOARD_ALLOWED_CIDRS=127.0.0.1/32' \
+sudo grep -Fxq 'DASHBOARD_ENABLED=true' "${root_mount}/etc/ppstime/ppstime.env"
+sudo grep -Fxq 'DASHBOARD_BIND=0.0.0.0' "${root_mount}/etc/ppstime/ppstime.env"
+sudo grep -Fxq \
+    'DASHBOARD_ALLOWED_CIDRS=127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16' \
     "${root_mount}/etc/ppstime/ppstime.env"
 sudo grep -qx \
     'dtoverlay=i2c-rtc,rv3028,backup-switchover-mode=3' \

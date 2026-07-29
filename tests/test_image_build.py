@@ -156,7 +156,7 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("is-enabled ppstime-healthcheck.timer", image_validator)
         self.assertIn("RuntimeDirectoryPreserve=yes", image_validator)
 
-    def test_image_requires_default_disabled_sandboxed_dashboard(self) -> None:
+    def test_image_requires_default_enabled_sandboxed_dashboard(self) -> None:
         install_script = (PROJECT_ROOT / "scripts" / "install.sh").read_text(
             encoding="utf-8"
         )
@@ -167,15 +167,12 @@ class ImageBuildTests(unittest.TestCase):
         self.assertIn("/usr/share/ppstime/dashboard/${dashboard_asset}", image_validator)
         self.assertIn("index.html dashboard.css dashboard.js ppspi.svg", image_validator)
         self.assertIn("ppstime-dashboard-sample.timer", image_validator)
-        self.assertIn("DASHBOARD_ENABLED=false", image_validator)
+        self.assertIn("DASHBOARD_ENABLED=true", image_validator)
+        self.assertIn("DASHBOARD_BIND=0.0.0.0", image_validator)
         self.assertIn("DynamicUser=true", image_validator)
         self.assertIn("PrivateNetwork=true", image_validator)
         self.assertIn(
-            "systemctl disable ppstime-dashboard.service ppstime-dashboard-sample.timer",
-            install_script,
-        )
-        self.assertIn(
-            "systemctl stop ppstime-dashboard.service ppstime-dashboard-sample.timer",
+            "systemctl enable --now ppstime-dashboard.service ppstime-dashboard-sample.timer",
             install_script,
         )
         self.assertNotIn(

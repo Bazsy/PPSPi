@@ -176,7 +176,8 @@ class InstallerTests(unittest.TestCase):
             dashboard_state_dir = root / "var/lib/ppstime-dashboard"
             self.assertTrue(dashboard_state_dir.is_dir())
             self.assertEqual(stat.S_IMODE(dashboard_state_dir.stat().st_mode), 0o755)
-            self.assertIn("DASHBOARD_ENABLED=false", installed_config)
+            self.assertIn("DASHBOARD_ENABLED=true", installed_config)
+            self.assertIn("DASHBOARD_BIND=0.0.0.0", installed_config)
             post_boot_timer = (
                 root
                 / "etc"

@@ -5,6 +5,15 @@ All notable changes are documented here. PPSPi follows
 
 ## Unreleased
 
+### Changed
+
+- enable the read-only dashboard automatically, bind it to every IPv4 interface
+  so both Ethernet and Wi-Fi addresses work after boot, and admit only loopback
+  and RFC 1918 peers by default.
+- migrate the exact untouched v0.2.0 dashboard defaults during a signed
+  application update while preserving operator-customized dashboard settings
+  and transactional rollback.
+
 ## 0.2.0 - 2026-07-25
 
 ### Added
