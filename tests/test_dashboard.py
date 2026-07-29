@@ -156,7 +156,7 @@ class DashboardTests(unittest.TestCase):
             lock_path = root / "run/lock/ppstime-maintenance.lock"
             lock_path.parent.mkdir(parents=True)
             lock_path.write_text("", encoding="ascii")
-            os.chmod(lock_path, 0o600)
+            os.chmod(lock_path, 0o644)
             with lock_path.open("rb") as lock:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 self.assertTrue(
@@ -776,6 +776,21 @@ console.log(JSON.stringify(result));
             "OpenFile=/run/lock/ppstime-maintenance.lock:maintenance-lock:read-only",
             server,
         )
+        self.assertIn("Requires=ppstime-dashboard-lock.service", server)
+        self.assertIn(
+            "After=network.target ppstime-dashboard-lock.service "
+            "ppstime-dashboard-sample.service",
+            server,
+        )
+        lock_service = (systemd / "ppstime-dashboard-lock.service").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "ExecStart=/usr/lib/ppstime/ppstime-update prepare-lock",
+            lock_service,
+        )
+        self.assertIn("ReadWritePaths=/run/lock", lock_service)
+        self.assertIn("CapabilityBoundingSet=", lock_service)
         self.assertIn("DynamicUser=true", server)
         self.assertIn("ProtectSystem=strict", server)
         self.assertIn("CapabilityBoundingSet=", server)
@@ -800,7 +815,7 @@ console.log(JSON.stringify(result));
             "etc/systemd/system/ppstime-dashboard.service",
             "etc/systemd/system/ppstime-dashboard-sample.service",
             "etc/systemd/system/ppstime-dashboard-sample.timer",
-            "usr/lib/tmpfiles.d/ppstime.conf",
+            "etc/systemd/system/ppstime-dashboard-lock.service",
         }
         self.assertTrue(expected.issubset(payload))
         self.assertEqual(

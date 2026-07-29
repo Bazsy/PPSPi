@@ -1,0 +1,36 @@
+[Unit]
+Description=PPSPi root-only dashboard maintenance lock
+Before=ppstime-dashboard.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/ppstime/ppstime-update prepare-lock
+RemainAfterExit=yes
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ReadWritePaths=/run/lock
+MemoryMax=32M
+TasksMax=8
+LimitNOFILE=32
+TimeoutStartSec=10s

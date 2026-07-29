@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import importlib.machinery
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -36,10 +38,46 @@ from ppstime_update import (
     load_transaction,
     parse_version,
     signing_key_id,
+    source_payload_files,
     validate_archive,
     verify_signature,
     version_is_downgrade,
 )
+
+LEGACY_0_2_3_ALLOWED_EXACT = frozenset(
+    {
+        "usr/lib/ppstime/configure-profile.py",
+        "usr/lib/ppstime/ppstime_core.py",
+        "usr/lib/ppstime/ppstime_update.py",
+        "usr/share/ppstime/config/default.env",
+        "usr/share/ppstime/application-update.pub",
+        "usr/share/ppstime/dashboard/index.html",
+        "usr/share/ppstime/dashboard/dashboard.css",
+        "usr/share/ppstime/dashboard/dashboard.js",
+        "usr/share/ppstime/dashboard/ppspi.svg",
+        "etc/systemd/system/gpsd.service.d/ppstime.conf",
+        "etc/systemd/system/chrony.service.d/ppstime.conf",
+        "etc/udev/rules.d/80-ppstime.rules",
+        "etc/modules-load.d/ppstime.conf",
+    }
+)
+
+
+def accepted_by_legacy_0_2_3_updater(value: str) -> bool:
+    """Mirror the immutable v0.2.3 payload boundary used on deployed images."""
+
+    return bool(
+        value in LEGACY_0_2_3_ALLOWED_EXACT
+        or re.fullmatch(r"usr/lib/ppstime/ppstime-[a-z0-9-]+", value)
+        or re.fullmatch(
+            r"usr/share/ppstime/config/profiles/[a-z0-9][a-z0-9-]*\.env",
+            value,
+        )
+        or re.fullmatch(
+            r"etc/systemd/system/ppstime-[a-z0-9-]+\.(?:service|timer)",
+            value,
+        )
+    )
 
 
 def load_command() -> ModuleType:
@@ -84,6 +122,25 @@ def write_archive(path: Path, members: list[tuple[str, bytes, int, str]]) -> Non
 
 
 class ApplicationUpdateTests(unittest.TestCase):
+    def test_current_payload_is_accepted_by_immutable_v023_updater(self) -> None:
+        paths = [
+            destination
+            for _, destination, _ in source_payload_files(PROJECT_ROOT)
+        ]
+        rejected = sorted(
+            path for path in paths if not accepted_by_legacy_0_2_3_updater(path)
+        )
+        self.assertEqual(rejected, [])
+        self.assertIn(
+            "etc/systemd/system/ppstime-dashboard-lock.service",
+            paths,
+        )
+        self.assertLess(
+            "ppstime-dashboard-lock.service",
+            "ppstime-dashboard.service",
+        )
+        self.assertNotIn("usr/lib/tmpfiles.d/ppstime.conf", paths)
+
     def test_compatibility_series_and_downgrade_rules(self) -> None:
         self.assertEqual(compatibility_series("0.2.3"), "0.2")
         self.assertEqual(compatibility_series("1.7.4"), "1")
@@ -588,12 +645,27 @@ class ApplicationUpdateTests(unittest.TestCase):
             ) as run,
         ):
             module.reconcile_units(
-                Path("/"), {"ppstime-dashboard.service"}, set(), {}
+                Path("/"),
+                {
+                    "ppstime-dashboard-lock.service",
+                    "ppstime-dashboard.service",
+                },
+                set(),
+                {},
             )
-        self.assertIn(
-            ["systemctl", "enable", "--now", "ppstime-dashboard.service"],
-            [call.args[0] for call in run.call_args_list],
+        commands = [call.args[0] for call in run.call_args_list]
+        lock_index = commands.index(
+            [
+                "systemctl",
+                "disable",
+                "--now",
+                "ppstime-dashboard-lock.service",
+            ]
         )
+        dashboard_index = commands.index(
+            ["systemctl", "enable", "--now", "ppstime-dashboard.service"]
+        )
+        self.assertLess(lock_index, dashboard_index)
 
     def test_status_does_not_acquire_root_owned_maintenance_lock(self) -> None:
         module = load_command()
@@ -610,6 +682,58 @@ class ApplicationUpdateTests(unittest.TestCase):
         ):
             self.assertEqual(module.main(), 0)
         acquire.assert_not_called()
+
+    def test_prepare_lock_action_does_not_reacquire_held_lock(self) -> None:
+        module = load_command()
+        args = Namespace(
+            action="prepare-lock",
+            root=Path("/"),
+            lock_file=Path("/run/lock/ppstime-maintenance.lock"),
+            skip_lock=False,
+            allow_non_root=True,
+        )
+        with (
+            patch.object(module, "parse_args", return_value=args),
+            patch.object(module, "acquire_lock") as acquire,
+            patch.object(module, "prepare_lock_file") as prepare,
+        ):
+            self.assertEqual(module.main(), 0)
+        acquire.assert_not_called()
+        prepare.assert_called_once_with(Path("/run/lock/ppstime-maintenance.lock"))
+
+    def test_prepare_lock_preserves_inode_exclusive_lock_and_mode(self) -> None:
+        module = load_command()
+        with tempfile.TemporaryDirectory() as temporary:
+            lock_path = Path(temporary) / "run/lock/ppstime-maintenance.lock"
+            lock_path.parent.mkdir(parents=True)
+            lock_path.write_text("", encoding="ascii")
+            os.chmod(lock_path, 0o644)
+            inode = lock_path.stat().st_ino
+            with lock_path.open("rb") as held:
+                fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                module.prepare_lock_file(lock_path)
+                self.assertEqual(lock_path.stat().st_ino, inode)
+                self.assertEqual(stat.S_IMODE(lock_path.stat().st_mode), 0o600)
+                with lock_path.open("rb") as contender, self.assertRaises(
+                    BlockingIOError
+                ):
+                    fcntl.flock(
+                        contender.fileno(),
+                        fcntl.LOCK_SH | fcntl.LOCK_NB,
+                    )
+
+    def test_prepare_lock_creates_file_and_rejects_symlink(self) -> None:
+        module = load_command()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lock_path = root / "run/lock/ppstime-maintenance.lock"
+            module.prepare_lock_file(lock_path)
+            self.assertTrue(lock_path.is_file())
+            self.assertEqual(stat.S_IMODE(lock_path.stat().st_mode), 0o600)
+            lock_path.unlink()
+            lock_path.symlink_to(root / "attacker-controlled")
+            with self.assertRaisesRegex(UpdateError, "cannot prepare"):
+                module.prepare_lock_file(lock_path)
 
     def test_recovery_restores_prepared_and_applying_transactions(self) -> None:
         module = load_command()

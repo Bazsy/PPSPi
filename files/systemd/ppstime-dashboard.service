@@ -1,6 +1,7 @@
 [Unit]
 Description=PPSPi optional read-only local dashboard
-After=network.target ppstime-dashboard-sample.service
+Requires=ppstime-dashboard-lock.service
+After=network.target ppstime-dashboard-lock.service ppstime-dashboard-sample.service
 
 [Service]
 Type=simple
