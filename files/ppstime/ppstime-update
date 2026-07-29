@@ -171,7 +171,7 @@ def reconcile_units(
         enabled = desired.get(unit, False)
         operation = "enable" if enabled else "disable"
         command = ["systemctl", operation]
-        if unit.endswith(".timer") or not enabled:
+        if unit.endswith(".timer") or unit == "ppstime-dashboard.service" or not enabled:
             command.append("--now")
         command.append(unit)
         result = run_command(command)
@@ -480,7 +480,21 @@ def activate(root: Path, *, validate_health: bool = True) -> None:
     if validate_health:
         health = run_command(["/usr/lib/ppstime/ppstime-test", "--json"], timeout=180)
         if health.returncode != 0:
-            raise UpdateError("post-update PPSPi validation failed")
+            detail = ""
+            try:
+                result = json.loads(health.stdout)
+                failed = [
+                    check["name"]
+                    for check in result["checks"]
+                    if check.get("essential") is True and check.get("status") == "FAIL"
+                    and isinstance(check.get("name"), str)
+                    and re.fullmatch(r"[a-z0-9_]+", check["name"])
+                ]
+                if failed:
+                    detail = f": {', '.join(failed[:8])}"
+            except (KeyError, TypeError, json.JSONDecodeError):
+                pass
+            raise UpdateError(f"post-update PPSPi validation failed{detail}")
 
 
 def apply_update(args: argparse.Namespace) -> int:
@@ -869,7 +883,11 @@ def main() -> int:
     args = parse_args()
     try:
         lock_path = rooted(args.root, args.lock_file)
-        lock_context = contextlib.nullcontext() if args.skip_lock else acquire_lock(lock_path)
+        lock_context = (
+            contextlib.nullcontext()
+            if args.skip_lock or args.action == "status"
+            else acquire_lock(lock_path)
+        )
         with lock_context:
             if args.action == "check":
                 return check_update(args)

@@ -516,6 +516,7 @@ console.log(JSON.stringify(result));
         self.assertNotIn("DynamicUser=true", sampler)
         self.assertIn("ReadWritePaths=/var/lib/ppstime-dashboard", sampler)
         self.assertNotIn("ReadWritePaths=", server)
+        self.assertIn("Wants=ppstime-dashboard.service", timer)
         self.assertIn("OnUnitActiveSec=2min", timer)
 
     def test_signed_payload_inventory_contains_exact_dashboard_files(self) -> None:

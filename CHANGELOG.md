@@ -5,6 +5,20 @@ All notable changes are documented here. PPSPi follows
 
 ## Unreleased
 
+## 0.2.3 - 2026-07-29
+
+### Fixed
+
+- retry deep hardware validation for up to 90 seconds only when invoked by the
+  application updater, allowing GPSD, PPS, Chrony, and local NTP to settle after
+  their intentional restart while keeping normal operator tests immediate.
+- start the newly enabled dashboard during an update performed by the already
+  running v0.2.0 updater, and explicitly start it in current updater unit
+  reconciliation.
+- report exact essential post-update checks that remain failed after settling.
+- make read-only `ppstime-update status` work without root by avoiding the
+  root-owned maintenance lock; mutating operations remain locked and root-only.
+
 ## 0.2.2 - 2026-07-29
 
 ### Fixed

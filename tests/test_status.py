@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import importlib.machinery
 import json
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +20,62 @@ sys.path.insert(0, str(CORE_PATH))
 from ppstime_core import config_to_env, load_config, read_rtc_sysfs
 
 
+def load_test_command() -> ModuleType:
+    loader = importlib.machinery.SourceFileLoader(
+        "ppstime_test_command", str(CORE_PATH / "ppstime-test")
+    )
+    module = ModuleType(loader.name)
+    module.__file__ = str(CORE_PATH / "ppstime-test")
+    sys.modules[loader.name] = module
+    loader.exec_module(module)
+    return module
+
+
 class StatusTests(unittest.TestCase):
+    def test_deep_validation_detects_updater_parent_exactly(self) -> None:
+        module = load_test_command()
+        with tempfile.TemporaryDirectory() as temporary:
+            proc_root = Path(temporary)
+            parent = proc_root / "123"
+            parent.mkdir()
+            cmdline = parent / "cmdline"
+            cmdline.write_bytes(b"python3\0/usr/lib/ppstime/ppstime-update\0apply\0")
+            self.assertTrue(
+                module.invoked_by_application_update(
+                    proc_root=proc_root, parent_pid=123
+                )
+            )
+            cmdline.write_bytes(b"python3\0/usr/lib/ppstime/ppstime-test\0--json\0")
+            self.assertFalse(
+                module.invoked_by_application_update(
+                    proc_root=proc_root, parent_pid=123
+                )
+            )
+
+    def test_updater_validation_retries_until_hardware_settles(self) -> None:
+        module = load_test_command()
+        args = Namespace(
+            config=Path("/etc/ppstime/ppstime.env"),
+            json=True,
+            boot_config=None,
+        )
+        failed = subprocess.CompletedProcess([], 1, '{"ok":false}\n', "")
+        passed = subprocess.CompletedProcess([], 0, '{"ok":true}\n', "")
+        with (
+            patch.object(module.subprocess, "run", side_effect=(failed, passed)) as run,
+            patch.object(module.time, "sleep"),
+            patch.object(
+                module.time,
+                "monotonic",
+                side_effect=(0.0, 0.0, 0.0, 5.0, 5.0),
+            ),
+        ):
+            returncode, output = module.retry_update_validation(args, "initial\n")
+        self.assertEqual(returncode, 0)
+        self.assertEqual(output, '{"ok":true}\n')
+        self.assertEqual(run.call_count, 2)
+        self.assertIn("--no-update-settle", run.call_args.args[0])
+
     def test_unprivileged_rtc_sysfs_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             rtc_dir = Path(temporary) / "rtc0"
