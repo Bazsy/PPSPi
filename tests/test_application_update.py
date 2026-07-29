@@ -430,6 +430,79 @@ class ApplicationUpdateTests(unittest.TestCase):
             transaction = json.loads(transaction_path.read_text(encoding="ascii"))
             self.assertEqual(transaction["state"], "ROLLED_BACK")
 
+    def test_activation_reports_failed_health_checks(self) -> None:
+        module = load_command()
+        results = (
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess(
+                [],
+                1,
+                json.dumps(
+                    {
+                        "checks": [
+                            {
+                                "name": "chrony_synchronized",
+                                "status": "FAIL",
+                                "essential": True,
+                            },
+                            {
+                                "name": "gps_fix",
+                                "status": "WARN",
+                                "essential": False,
+                            },
+                        ]
+                    }
+                ),
+                "",
+            ),
+        )
+        with (
+            patch.object(module, "run_command", side_effect=results),
+            self.assertRaisesRegex(UpdateError, "chrony_synchronized"),
+        ):
+            module.activate(Path("/"))
+
+    def test_dashboard_reconciliation_enables_and_starts_server(self) -> None:
+        module = load_command()
+        config = {
+            "OS_UPDATES_ENABLED": "false",
+            "APP_UPDATES_ENABLED": "false",
+            "RTC_ENABLED": "true",
+            "DASHBOARD_ENABLED": "true",
+        }
+        with (
+            patch.object(module, "parse_env_file", return_value=config),
+            patch.object(
+                module,
+                "run_command",
+                return_value=subprocess.CompletedProcess([], 0, "", ""),
+            ) as run,
+        ):
+            module.reconcile_units(
+                Path("/"), {"ppstime-dashboard.service"}, set(), {}
+            )
+        self.assertIn(
+            ["systemctl", "enable", "--now", "ppstime-dashboard.service"],
+            [call.args[0] for call in run.call_args_list],
+        )
+
+    def test_status_does_not_acquire_root_owned_maintenance_lock(self) -> None:
+        module = load_command()
+        args = Namespace(
+            action="status",
+            root=Path("/"),
+            lock_file=Path("/run/lock/ppstime-maintenance.lock"),
+            skip_lock=False,
+        )
+        with (
+            patch.object(module, "parse_args", return_value=args),
+            patch.object(module, "acquire_lock") as acquire,
+            patch.object(module, "status", return_value=0),
+        ):
+            self.assertEqual(module.main(), 0)
+        acquire.assert_not_called()
+
     def test_recovery_restores_prepared_and_applying_transactions(self) -> None:
         module = load_command()
         for state in ("PREPARED", "APPLYING"):

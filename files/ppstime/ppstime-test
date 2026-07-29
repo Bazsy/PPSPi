@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import socket
 import struct
 import subprocess
 import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -28,6 +30,82 @@ class Check:
     status: str
     message: str
     essential: bool = True
+
+
+UPDATE_SETTLE_TIMEOUT_SECONDS = 90.0
+UPDATE_SETTLE_INTERVAL_SECONDS = 5.0
+
+
+def invoked_by_application_update(
+    *, proc_root: Path = Path("/proc"), parent_pid: int | None = None
+) -> bool:
+    """Return whether the direct parent is the PPSPi application updater."""
+
+    pid = os.getppid() if parent_pid is None else parent_pid
+    try:
+        command = (proc_root / str(pid) / "cmdline").read_bytes().split(b"\0")
+    except OSError:
+        return False
+    return any(
+        Path(part.decode("utf-8", errors="ignore")).name == "ppstime-update"
+        for part in command
+        if part
+    )
+
+
+def render_checks(checks: list[Check], *, json_output: bool) -> str:
+    failed = [check for check in checks if check.essential and check.status == "FAIL"]
+    if json_output:
+        return json.dumps(
+            {"checks": [asdict(check) for check in checks], "ok": not failed},
+            indent=2,
+        ) + "\n"
+    lines = [
+        f"[{check.status:<4}] {check.name:<24} {check.message}" for check in checks
+    ]
+    lines.append(f"\nEssential checks: {'PASS' if not failed else 'FAIL'}")
+    return "\n".join(lines) + "\n"
+
+
+def retry_update_validation(args: argparse.Namespace, initial_output: str) -> tuple[int, str]:
+    """Retry a failed post-restart update validation for a bounded settle window."""
+
+    command = [
+        sys.executable,
+        str(Path(__file__)),
+        "--no-update-settle",
+        "--config",
+        str(args.config),
+    ]
+    if args.json:
+        command.append("--json")
+    if args.boot_config is not None:
+        command.extend(("--boot-config", str(args.boot_config)))
+    deadline = time.monotonic() + UPDATE_SETTLE_TIMEOUT_SECONDS
+    last_output = initial_output
+    while True:
+        remaining = max(0.0, deadline - time.monotonic())
+        if remaining == 0:
+            break
+        time.sleep(min(UPDATE_SETTLE_INTERVAL_SECONDS, remaining))
+        remaining = max(0.0, deadline - time.monotonic())
+        if remaining == 0:
+            break
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=max(1.0, min(60.0, remaining)),
+            )
+        except subprocess.TimeoutExpired:
+            continue
+        if result.stdout:
+            last_output = result.stdout
+        if result.returncode == 0:
+            return 0, last_output
+    return 1, last_output
 
 
 def port_123_listening() -> bool:
@@ -59,6 +137,7 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=Path("/etc/ppstime/ppstime.env"))
     parser.add_argument("--fixture-dir", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--boot-config", type=Path)
+    parser.add_argument("--no-update-settle", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     try:
         config = parse_env_file(args.config)
@@ -162,12 +241,17 @@ def main() -> int:
     )
 
     failed = [check for check in checks if check.essential and check.status == "FAIL"]
-    if args.json:
-        print(json.dumps({"checks": [asdict(check) for check in checks], "ok": not failed}, indent=2))
-    else:
-        for check in checks:
-            print(f"[{check.status:<4}] {check.name:<24} {check.message}")
-        print(f"\nEssential checks: {'PASS' if not failed else 'FAIL'}")
+    output = render_checks(checks, json_output=args.json)
+    if (
+        failed
+        and not fixture_mode
+        and not args.no_update_settle
+        and invoked_by_application_update()
+    ):
+        returncode, output = retry_update_validation(args, output)
+        print(output, end="")
+        return returncode
+    print(output, end="")
     return 0 if not failed else 1
 
 

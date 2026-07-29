@@ -1,5 +1,6 @@
 [Unit]
 Description=Sample sanitized PPSPi dashboard history every two minutes
+Wants=ppstime-dashboard.service
 
 [Timer]
 OnBootSec=6min
