@@ -48,6 +48,14 @@ ppstime-status --json
     "serial": "OK",
     "service": "ACTIVE"
   },
+  "nts": {
+    "authenticated_sources": 0,
+    "enabled": false,
+    "nak_sources": 0,
+    "retrying_sources": 0,
+    "sources": 0,
+    "state": "DISABLED"
+  },
   "ntp_clients": 4,
   "pps": {
     "device": "/dev/pps0",
@@ -60,12 +68,19 @@ ppstime-status --json
     "status": "OK",
     "time": "2026-07-18 12:00:00.123456+00:00"
   },
-  "schema_version": 1
+  "schema_version": 2
 }
 ```
 
 Numeric timing measurements are strings to preserve Chrony's printed precision
-and sign. Unavailable values are JSON `null`.
+and sign. Unavailable values are JSON `null`. NTS fields are bounded aggregate
+state from the privileged health collector; they contain no source name or
+address. `authenticated_sources` counts sources with Chrony's healthy target
+cookie inventory; a low inventory is degraded. Missing, malformed, or
+older-than-five-minute state reports `UNKNOWN`.
+The retrying count also includes an authenticated source that Chrony currently
+marks unreachable, allowing prior cookies and current reachability to be
+distinguished without retaining its identity.
 
 ## `ppstime-test`
 
@@ -136,6 +151,7 @@ The result is a mode-0600 archive named
 - Chrony, GPSD, RTC, and PPSPi unit status;
 - up to 500 related journal entries from the last 24 hours;
 - Chrony tracking without source/client address listings;
+- sanitized timing status including aggregate NTS authentication health;
 - bounded `ppstest` and `hwclock` samples;
 - dashboard state and bounded database metadata (size, row count, and
   oldest/latest timestamps), but no dashboard sample rows.
@@ -161,6 +177,9 @@ two minutes with a small randomized delay. Two matching observations are needed
 to confirm `HEALTHY_PPS`, `NETWORK_FALLBACK`, `UNSYNCHRONIZED`, or
 `HARDWARE_ERROR`. The non-secret current state is stored under `/run/ppstime`
 and included in diagnostics as `health-state.json`.
+The same root collector reduces privileged Chrony NTS authentication data to
+`/run/ppstime/nts-state.json`; diagnostics expose it only through the sanitized
+`timing-status.json` and health summary.
 
 It does not restart services and returns success even when collection or a
 notification hook fails, preventing ordinary antenna outages or monitoring

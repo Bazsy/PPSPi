@@ -31,6 +31,10 @@ The PPSPi configuration is designed to be non-secret, but it can contain a
 hostname, private CIDRs, fallback pool, and hardware paths. Backups are therefore
 mode `0600`; inspect them locally before sharing.
 
+Backups also preserve whether ordinary NTP or authenticated NTS fallback is
+selected. Restoring an older backup that predates this option supplies the safe
+ordinary-NTP default before validation.
+
 ## Create a backup
 
 On the appliance:

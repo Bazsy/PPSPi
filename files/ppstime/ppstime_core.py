@@ -43,6 +43,7 @@ CONFIG_KEYS = frozenset(
         "RTC_BACKUP_SWITCH_MODE",
         "RTC_DEVICE",
         "NTP_ALLOW",
+        "NTP_FALLBACK_MODE",
         "NTP_FALLBACK_POOL",
         "CHRONY_GPS_OFFSET",
         "CHRONY_MAX_CLOCK_ERROR_PPM",
@@ -104,6 +105,9 @@ DASHBOARD_DEFAULTS = {
     "DASHBOARD_ALLOWED_CIDRS": "127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16",
     "DASHBOARD_RETENTION_HOURS": "168",
 }
+NTP_FALLBACK_DEFAULTS = {
+    "NTP_FALLBACK_MODE": "ntp",
+}
 LEGACY_DASHBOARD_DEFAULTS = {
     "DASHBOARD_ENABLED": "false",
     "DASHBOARD_BIND": "127.0.0.1",
@@ -112,6 +116,7 @@ LEGACY_DASHBOARD_DEFAULTS = {
     "DASHBOARD_RETENTION_HOURS": "168",
 }
 MIGRATABLE_CONFIG_DEFAULTS = {
+    **NTP_FALLBACK_DEFAULTS,
     **HOST_THRESHOLD_DEFAULTS,
     **OS_MAINTENANCE_DEFAULTS,
     **DASHBOARD_DEFAULTS,
@@ -319,6 +324,16 @@ def validate_config(config: Mapping[str, str]) -> None:
     pool = config["NTP_FALLBACK_POOL"]
     if not HOSTNAME_RE.fullmatch(pool):
         raise ConfigError("NTP_FALLBACK_POOL must be a valid hostname")
+    fallback_mode = config["NTP_FALLBACK_MODE"]
+    if fallback_mode not in {"ntp", "nts"}:
+        raise ConfigError("NTP_FALLBACK_MODE must be ntp or nts")
+    if fallback_mode == "nts":
+        if config["RTC_ENABLED"] != "true":
+            raise ConfigError("NTP_FALLBACK_MODE=nts requires RTC_ENABLED=true")
+        if pool == "pool.ntp.org":
+            raise ConfigError(
+                "NTP_FALLBACK_POOL must name an NTS-capable service when NTS is enabled"
+            )
     try:
         offset = float(config["CHRONY_GPS_OFFSET"])
     except ValueError as exc:
@@ -546,11 +561,22 @@ def render_chrony(config: Mapping[str, str]) -> str:
     lines.append(
         f"refclock PPS {pps_parameter} refid PPS lock GPS poll 0 dpoll 0 precision 1e-7"
     )
+    fallback_options = "iburst maxsources 4"
+    if config["NTP_FALLBACK_MODE"] == "nts":
+        fallback_options += " nts"
     lines.extend(
         [
             "",
             "# Network time accelerates startup and remains available when GNSS is lost.",
-            f"pool {config['NTP_FALLBACK_POOL']} iburst maxsources 4",
+            f"pool {config['NTP_FALLBACK_POOL']} {fallback_options}",
+            *(
+                [
+                    "# Preserve NTS cookies across restarts to reduce repeated TLS handshakes.",
+                    "ntsdumpdir /var/lib/chrony",
+                ]
+                if config["NTP_FALLBACK_MODE"] == "nts"
+                else []
+            ),
             "",
             "# Bound stale-source confidence. Healthy PPS wins naturally through its",
             "# much shorter root distance; stopped PPS yields to fresh network time.",
@@ -903,6 +929,82 @@ def parse_chrony_clients(text: str) -> int:
         if in_rows and line.strip() and len(line.split()) >= 6:
             count += 1
     return count
+
+
+def summarize_chrony_nts_authdata(
+    text: str,
+    sources_text: str | None = None,
+) -> dict[str, int | str]:
+    """Summarize `chronyc authdata` without retaining source identities."""
+
+    sources = 0
+    authenticated_sources = 0
+    cookie_sources = 0
+    retrying_sources = 0
+    nak_sources = 0
+    low_cookie_sources = 0
+    unreachable_identities: set[str] = set()
+    if sources_text is not None:
+        for source_line in sources_text.splitlines():
+            source_columns = source_line.split()
+            if (
+                len(source_columns) >= 2
+                and len(source_columns[0]) == 2
+                and source_columns[0][0] in "^=#"
+                and source_columns[0][1] == "?"
+            ):
+                unreachable_identities.add(source_columns[1])
+    in_rows = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("==="):
+            in_rows = True
+            continue
+        if not in_rows or not line:
+            continue
+        columns = line.split()
+        if len(columns) != 10 or columns[1] != "NTS":
+            continue
+        try:
+            attempts = int(columns[6])
+            nak = int(columns[7])
+            cookies = int(columns[8])
+        except ValueError:
+            continue
+        if min(attempts, nak, cookies) < 0:
+            continue
+        sources += 1
+        if cookies > 0:
+            cookie_sources += 1
+        if cookies >= 8:
+            authenticated_sources += 1
+        if 0 < cookies < 8:
+            low_cookie_sources += 1
+        if attempts > 1 or columns[0] in unreachable_identities:
+            retrying_sources += 1
+        if nak > 0:
+            nak_sources += 1
+
+    if sources == 0:
+        state = "FAILED"
+    elif (
+        authenticated_sources == sources
+        and retrying_sources == 0
+        and nak_sources == 0
+        and low_cookie_sources == 0
+    ):
+        state = "AUTHENTICATED"
+    elif cookie_sources > 0:
+        state = "DEGRADED"
+    else:
+        state = "FAILED"
+    return {
+        "state": state,
+        "sources": sources,
+        "authenticated_sources": authenticated_sources,
+        "retrying_sources": retrying_sources,
+        "nak_sources": nak_sources,
+    }
 
 
 def parse_ss_udp_listener(text: str, *, port: int) -> bool:

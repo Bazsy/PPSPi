@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = PROJECT_ROOT / "tests" / "fixtures" / "stratum1"
+NTS_FIXTURES = PROJECT_ROOT / "tests" / "fixtures" / "nts"
 sys.path.insert(0, str(PROJECT_ROOT / "files" / "ppstime"))
 
 from ppstime_core import (
@@ -18,6 +19,7 @@ from ppstime_core import (
     parse_ss_udp_listener,
     pps_sysfs_active,
     read_pps_sequence,
+    summarize_chrony_nts_authdata,
 )
 
 
@@ -32,6 +34,55 @@ class ParserTests(unittest.TestCase):
 
     def test_client_count(self) -> None:
         self.assertEqual(parse_chrony_clients(self.fixture("chronyc-clients.txt")), 4)
+
+    def test_nts_authdata_is_aggregated_without_source_identity(self) -> None:
+        output = (NTS_FIXTURES / "degraded.txt").read_text(encoding="utf-8")
+        summary = summarize_chrony_nts_authdata(output)
+        self.assertEqual(
+            summary,
+            {
+                "state": "DEGRADED",
+                "sources": 2,
+                "authenticated_sources": 1,
+                "retrying_sources": 1,
+                "nak_sources": 1,
+            },
+        )
+        self.assertNotIn("192.0.2.10", str(summary))
+        self.assertNotIn("secret-time.example.net", str(summary))
+
+    def test_nts_authenticated_fixture(self) -> None:
+        summary = summarize_chrony_nts_authdata(
+            (NTS_FIXTURES / "authenticated.txt").read_text(encoding="utf-8")
+        )
+        self.assertEqual(summary["state"], "AUTHENTICATED")
+        self.assertEqual(summary["authenticated_sources"], 2)
+
+    def test_nts_low_cookie_count_is_degraded(self) -> None:
+        output = (NTS_FIXTURES / "authenticated.txt").read_text(encoding="utf-8")
+        summary = summarize_chrony_nts_authdata(output.replace("    8  100", "    4  100", 1))
+        self.assertEqual(summary["state"], "DEGRADED")
+        self.assertEqual(summary["authenticated_sources"], 1)
+
+    def test_nts_unreachable_source_is_degraded_without_identity(self) -> None:
+        authdata = (NTS_FIXTURES / "authenticated.txt").read_text(encoding="utf-8")
+        sources = """\
+MS Name/IP address         Stratum Poll Reach LastRx Last sample
+===============================================================================
+^? 192.0.2.10                    2   6     0     -     +0ns[   +0ns] +/-    0ns
+^+ secret-time.example.net       2   6   377    20    +10us[  +11us] +/-   20ms
+"""
+        summary = summarize_chrony_nts_authdata(authdata, sources)
+        self.assertEqual(summary["state"], "DEGRADED")
+        self.assertEqual(summary["retrying_sources"], 1)
+        self.assertNotIn("192.0.2.10", str(summary))
+
+    def test_nts_authdata_without_cookies_is_failed(self) -> None:
+        output = (NTS_FIXTURES / "failed.txt").read_text(encoding="utf-8")
+        self.assertEqual(
+            summarize_chrony_nts_authdata(output)["state"],
+            "FAILED",
+        )
 
     def test_gps_fix_and_satellites(self) -> None:
         gps = parse_gpsd_json(self.fixture("gpspipe.txt"), device="/dev/serial0")

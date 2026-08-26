@@ -39,6 +39,26 @@ class RenderingTests(unittest.TestCase):
         rendered = render_chrony(config)
         self.assertIn("refclock PPS /dev/pps0:clear", rendered)
 
+    def test_nts_fallback_is_explicit_and_persists_cookies(self) -> None:
+        config = dict(
+            self.config,
+            NTP_FALLBACK_MODE="nts",
+            NTP_FALLBACK_POOL="time.example.net",
+        )
+        rendered = render_chrony(config)
+        self.assertIn(
+            "pool time.example.net iburst maxsources 4 nts",
+            rendered,
+        )
+        self.assertIn("ntsdumpdir /var/lib/chrony", rendered)
+        self.assertNotIn("nocerttimecheck", rendered)
+
+    def test_ordinary_ntp_fallback_remains_the_default(self) -> None:
+        rendered = render_chrony(self.config)
+        self.assertIn("pool pool.ntp.org iburst maxsources 4", rendered)
+        self.assertNotIn(" nts\n", rendered)
+        self.assertNotIn("ntsdumpdir", rendered)
+
     def test_gpsd_opens_devices_at_start_without_hotplug(self) -> None:
         rendered = render_gpsd(self.config)
         self.assertIn('GPSD_OPTIONS="-n -s 115200"', rendered)

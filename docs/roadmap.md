@@ -106,7 +106,7 @@ criteria. Expected work includes:
 - upgrade and rollback guarantees;
 - reproducibility and security expectations;
 - release-tested hardware with no unresolved assumptions;
-- authenticated NTS fallback as an option:
+- physical acceptance of the implemented authenticated NTS fallback option:
    [issue #70](https://github.com/Bazsy/PPSPi/issues/70);
 - evidence from unattended operation and recovery testing.
 

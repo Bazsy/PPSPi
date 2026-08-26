@@ -93,12 +93,17 @@ CHRONY_SELECTED_SOURCE_RE = re.compile(
     r"\bSelected source\s+\S+(?:\s+\([^\r\n)]*\))?",
     re.IGNORECASE,
 )
+CHRONY_REFERENCE_ID_RE = re.compile(r"^Reference ID\s*:.*$", re.IGNORECASE | re.MULTILINE)
 
 
-def redact_command_output(text: str) -> str:
+def redact_command_output(text: str, identities: tuple[str, ...] = ()) -> str:
     """Remove network source/client identities from bounded command output."""
 
     redacted = CHRONY_SELECTED_SOURCE_RE.sub("Selected source REDACTED", text)
+    redacted = CHRONY_REFERENCE_ID_RE.sub("Reference ID : REDACTED", redacted)
+    for identity in identities:
+        if identity:
+            redacted = re.sub(re.escape(identity), "REDACTED", redacted, flags=re.IGNORECASE)
 
     def redact_ip(match: re.Match[str]) -> str:
         try:
@@ -111,11 +116,16 @@ def redact_command_output(text: str) -> str:
     return IPV6_RE.sub(redact_ip, redacted)
 
 
-def write_command(path: Path, command: list[str], timeout: float = 15.0) -> None:
+def write_command(
+    path: Path,
+    command: list[str],
+    timeout: float = 15.0,
+    identities: tuple[str, ...] = (),
+) -> None:
     result = run_command(command, timeout=timeout)
     path.write_text(
         f"$ {' '.join(command)}\nexit_code={result.returncode}\n\n"
-        f"{redact_command_output(result.stdout + result.stderr)}",
+        f"{redact_command_output(result.stdout + result.stderr, identities)}",
         encoding="utf-8",
     )
 
@@ -147,6 +157,21 @@ def write_health_state(path: Path) -> None:
     else:
         payload = {
             "error": result.stderr.strip() or "health state unavailable",
+            "exit_code": result.returncode,
+        }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def write_timing_status(path: Path) -> None:
+    result = run_command(["/usr/lib/ppstime/ppstime-status", "--json"], timeout=15)
+    if result.returncode == 0:
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            payload = {"error": f"status command returned invalid JSON: {exc}"}
+    else:
+        payload = {
+            "error": result.stderr.strip() or "timing status unavailable",
             "exit_code": result.returncode,
         }
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -303,8 +328,10 @@ def main() -> int:
         (bundle / "devices.txt").write_text(
             "\n".join(devices) + "\n", encoding="utf-8"
         )
+        network_identities = (config["NTP_FALLBACK_POOL"],)
         for filename, command in COMMANDS.items():
-            write_command(bundle / filename, command)
+            write_command(bundle / filename, command, identities=network_identities)
+        write_timing_status(bundle / "timing-status.json")
         write_health_state(bundle / "health-state.json")
         write_host_health(bundle / "host-health.json")
         write_maintenance_state(bundle / "maintenance-state.json")

@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 HEALTH_COMMAND = PROJECT_ROOT / "files" / "ppstime" / "ppstime-health"
@@ -24,6 +25,14 @@ from ppstime_core import load_config
 
 def load_health_module() -> ModuleType:
     loader = importlib.machinery.SourceFileLoader("ppstime_health", str(HEALTH_COMMAND))
+    module = ModuleType(loader.name)
+    loader.exec_module(module)
+    return module
+
+
+def load_healthcheck_module() -> ModuleType:
+    command = PROJECT_ROOT / "files" / "ppstime" / "ppstime-healthcheck"
+    loader = importlib.machinery.SourceFileLoader("ppstime_healthcheck", str(command))
     module = ModuleType(loader.name)
     loader.exec_module(module)
     return module
@@ -101,6 +110,87 @@ def healthy_host_status() -> dict[str, Any]:
 
 
 class HealthTests(unittest.TestCase):
+    def test_healthcheck_publishes_identity_free_nts_state(self) -> None:
+        module = load_healthcheck_module()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config_path = root / "ppstime.env"
+            config = dict(
+                load_config(PROJECT_ROOT, environ={}),
+                NTP_FALLBACK_MODE="nts",
+                NTP_FALLBACK_POOL="private-time.example.net",
+            )
+            from ppstime_core import CommandResult, config_to_env
+
+            config_path.write_text(config_to_env(config), encoding="utf-8")
+            state_path = root / "nts-state.json"
+            authdata = """\
+Name/IP address             Mode KeyID Type KLen Last Atmp  NAK Cook CLen
+==============================================================================
+192.0.2.10                  NTS     1   15  256  10m    0    0    8  100
+private-time.example.net    NTS     2   15  256   1m    2    0    4  100
+"""
+            with patch.object(
+                module,
+                "run_command",
+                return_value=CommandResult(0, authdata, ""),
+            ):
+                module.collect_nts_state(config_path, state_path)
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["state"], "DEGRADED")
+        self.assertEqual(payload["sources"], 2)
+        self.assertEqual(payload["retrying_sources"], 1)
+        serialized = json.dumps(payload)
+        self.assertNotIn("192.0.2.10", serialized)
+        self.assertNotIn("private-time.example.net", serialized)
+
+    def test_healthcheck_degrades_unreachable_authenticated_nts(self) -> None:
+        module = load_healthcheck_module()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = dict(
+                load_config(PROJECT_ROOT, environ={}),
+                NTP_FALLBACK_MODE="nts",
+                NTP_FALLBACK_POOL="private-time.example.net",
+            )
+            from ppstime_core import CommandResult, config_to_env
+
+            config_path = root / "ppstime.env"
+            config_path.write_text(config_to_env(config), encoding="utf-8")
+            authdata = (PROJECT_ROOT / "tests/fixtures/nts/authenticated.txt").read_text(
+                encoding="utf-8"
+            )
+            sources = "^? 192.0.2.10 2 6 0 - +0ns[+0ns] +/- 0ns\n"
+            with patch.object(
+                module,
+                "run_command",
+                side_effect=(
+                    CommandResult(0, authdata, ""),
+                    CommandResult(0, sources, ""),
+                ),
+            ):
+                state_path = root / "nts-state.json"
+                module.collect_nts_state(config_path, state_path)
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["state"], "DEGRADED")
+        self.assertEqual(payload["retrying_sources"], 1)
+        self.assertNotIn("192.0.2.10", json.dumps(payload))
+
+    def test_health_schema_v2_retains_nts_summary(self) -> None:
+        module = load_health_module()
+        status = healthy_status()
+        status["schema_version"] = 2
+        status["nts"] = {
+            "enabled": True,
+            "state": "AUTHENTICATED",
+            "sources": 2,
+            "authenticated_sources": 2,
+            "retrying_sources": 0,
+            "nak_sources": 0,
+        }
+        summary = module.normalize_status(status)
+        self.assertEqual(summary["nts"], status["nts"])
+
     def run_update(
         self,
         root: Path,
@@ -805,6 +895,12 @@ class HealthTests(unittest.TestCase):
             self.assertEqual(json.loads(output.read_text(encoding="utf-8")), {
                 "state": "HEALTHY_PPS"
             })
+            timing_output = Path(temporary) / "timing-status.json"
+            module.write_timing_status(timing_output)
+            self.assertEqual(
+                json.loads(timing_output.read_text(encoding="utf-8")),
+                {"state": "HEALTHY_PPS"},
+            )
             module.run_command = lambda command, timeout: SimpleNamespace(
                 returncode=0,
                 stdout='{"state":"HEALTHY"}\n',
@@ -836,6 +932,17 @@ class HealthTests(unittest.TestCase):
         self.assertIn("Selected source REDACTED", sanitized)
         self.assertIn("version=3.25.1", sanitized)
         self.assertIn("timestamp=15:22:14", sanitized)
+        nts_failure = module.redact_command_output(
+            "chronyd: NTS-KE failed for secret-time.example.net\n",
+            ("secret-time.example.net",),
+        )
+        self.assertNotIn("secret-time.example.net", nts_failure)
+        self.assertIn("NTS-KE failed for REDACTED", nts_failure)
+        tracking = module.redact_command_output(
+            "Reference ID    : 01020304 (secret-selected.example.net)\n"
+        )
+        self.assertNotIn("secret-selected.example.net", tracking)
+        self.assertEqual(tracking, "Reference ID : REDACTED\n")
 
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "command.txt"

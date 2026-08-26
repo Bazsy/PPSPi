@@ -95,6 +95,11 @@ NTP_FALLBACK_POOL=se.pool.ntp.org
 DEFAULT_HOSTNAME=ppspi
 ```
 
+Ordinary NTP is the default. Authenticated NTS fallback is an explicit opt-in
+and requires an enabled, working RTC plus an operator-selected NTS-capable
+hostname. See [Chrony GPS/PPS design](chrony.md#authenticated-nts-fallback)
+before enabling it.
+
 The installer also accepts recognized exported variables as final overrides.
 Use this sparingly so an installation remains reproducible.
 

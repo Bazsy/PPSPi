@@ -5,6 +5,13 @@ All notable changes are documented here. PPSPi follows
 
 ## Unreleased
 
+### Added
+
+- add opt-in authenticated NTS startup/outage fallback with RTC-backed
+  certificate-time validation, persisted NTS cookies, strict hostname/mode
+  rendering, and identity-free authentication health in status and diagnostics;
+  ordinary NTP remains the default.
+
 ## 0.2.6 - 2026-07-29
 
 ### Fixed

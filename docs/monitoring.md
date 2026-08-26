@@ -36,6 +36,13 @@ Non-PPS/GPS selected sources are recorded only as `OTHER`. `/run` is
 memory-backed and resets on reboot, which avoids periodic microSD writes. Use
 the journal for transition history across the current boot.
 
+When authenticated fallback is enabled, the same root oneshot collects
+privileged Chrony authentication state before sampling timing health. It writes
+only aggregate NTS state and counters to `/run/ppstime/nts-state.json`; source
+names and addresses are discarded. `ppstime-status --json`, the health summary,
+and diagnostics can therefore distinguish authenticated, degraded, failed, and
+stale/unknown NTS state without weakening Chrony's command-socket permissions.
+
 ## Inspect health
 
 Show confirmed and pending state:
