@@ -51,6 +51,7 @@ class ConfigTests(unittest.TestCase):
             self.config["NTP_ALLOW"],
             "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7",
         )
+        self.assertEqual(self.config["NTP_FALLBACK_MODE"], "ntp")
         self.assertEqual(self.config["CHRONY_MAX_CLOCK_ERROR_PPM"], "200")
         self.assertEqual(self.config["CHRONY_MAX_DISTANCE"], "0.1")
 
@@ -343,6 +344,22 @@ class ConfigTests(unittest.TestCase):
             for value in values:
                 with self.subTest(key=key, value=value), self.assertRaises(ConfigError):
                     validate_config(dict(self.config, **{key: value}))
+
+    def test_nts_requires_rtc_and_an_explicit_capable_service(self) -> None:
+        nts = dict(
+            self.config,
+            NTP_FALLBACK_MODE="nts",
+            NTP_FALLBACK_POOL="time.example.net",
+        )
+        validate_config(nts)
+        with self.assertRaisesRegex(ConfigError, "must be ntp or nts"):
+            validate_config(dict(self.config, NTP_FALLBACK_MODE="automatic"))
+        with self.assertRaisesRegex(ConfigError, "requires RTC_ENABLED=true"):
+            validate_config(dict(nts, RTC_ENABLED="false"))
+        with self.assertRaisesRegex(ConfigError, "NTS-capable"):
+            validate_config(
+                dict(self.config, NTP_FALLBACK_MODE="nts", NTP_FALLBACK_POOL="pool.ntp.org")
+            )
 
     def test_rejects_baud_rates_not_supported_by_gpsd(self) -> None:
         for value in ("1200", "14400", "115201", "921600"):

@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from argparse import Namespace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
@@ -189,7 +190,117 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(status["chrony"]["selected_source"], "PPS")
         self.assertEqual(status["chrony"]["stratum"], 1)
         self.assertEqual(status["chrony"]["system_offset_seconds"], "+0.000002100")
+        self.assertEqual(status["schema_version"], 2)
+        self.assertEqual(
+            status["nts"],
+            {
+                "enabled": False,
+                "state": "DISABLED",
+                "sources": 0,
+                "authenticated_sources": 0,
+                "retrying_sources": 0,
+                "nak_sources": 0,
+            },
+        )
         self.assertEqual(status["ntp_clients"], 4)
+
+    def test_nts_status_uses_only_fresh_sanitized_monitor_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture_dir = root / "fixtures"
+            shutil.copytree(FIXTURES, fixture_dir)
+            config = dict(
+                load_config(PROJECT_ROOT, environ={}),
+                NTP_FALLBACK_MODE="nts",
+                NTP_FALLBACK_POOL="private-time.example.net",
+            )
+            config_path = root / "ppstime.env"
+            config_path.write_text(config_to_env(config), encoding="utf-8")
+            state = {
+                "schema_version": 1,
+                "checked_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "enabled": True,
+                "state": "DEGRADED",
+                "sources": 2,
+                "authenticated_sources": 1,
+                "retrying_sources": 1,
+                "nak_sources": 0,
+            }
+            (fixture_dir / "nts-state.json").write_text(
+                json.dumps(state), encoding="utf-8"
+            )
+            status = self.run_status(config_path, fixture_dir)
+        self.assertEqual(status["nts"]["state"], "DEGRADED")
+        self.assertEqual(status["nts"]["authenticated_sources"], 1)
+        self.assertNotIn("private-time.example.net", json.dumps(status))
+
+    def test_stale_nts_monitor_state_is_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture_dir = root / "fixtures"
+            shutil.copytree(FIXTURES, fixture_dir)
+            config = dict(
+                load_config(PROJECT_ROOT, environ={}),
+                NTP_FALLBACK_MODE="nts",
+                NTP_FALLBACK_POOL="time.example.net",
+            )
+            config_path = root / "ppstime.env"
+            config_path.write_text(config_to_env(config), encoding="utf-8")
+            stale = {
+                "schema_version": 1,
+                "checked_utc": (
+                    datetime.now(timezone.utc) - timedelta(minutes=10)
+                ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "enabled": True,
+                "state": "AUTHENTICATED",
+                "sources": 1,
+                "authenticated_sources": 1,
+                "retrying_sources": 0,
+                "nak_sources": 0,
+            }
+            (fixture_dir / "nts-state.json").write_text(
+                json.dumps(stale), encoding="utf-8"
+            )
+            status = self.run_status(config_path, fixture_dir)
+        self.assertEqual(status["nts"]["state"], "UNKNOWN")
+        self.assertEqual(status["nts"]["sources"], 0)
+
+    def test_malformed_or_contradictory_nts_state_is_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture_dir = root / "fixtures"
+            shutil.copytree(FIXTURES, fixture_dir)
+            config = dict(
+                load_config(PROJECT_ROOT, environ={}),
+                NTP_FALLBACK_MODE="nts",
+                NTP_FALLBACK_POOL="time.example.net",
+            )
+            config_path = root / "ppstime.env"
+            config_path.write_text(config_to_env(config), encoding="utf-8")
+            base = {
+                "schema_version": 1,
+                "checked_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "enabled": True,
+                "state": "AUTHENTICATED",
+                "sources": 1,
+                "authenticated_sources": 1,
+                "retrying_sources": 0,
+                "nak_sources": 0,
+            }
+            invalid_states = (
+                dict(base, checked_utc=123),
+                dict(base, schema_version=True),
+                dict(base, sources=0, authenticated_sources=0),
+                dict(base, retrying_sources=2),
+            )
+            for invalid in invalid_states:
+                with self.subTest(invalid=invalid):
+                    (fixture_dir / "nts-state.json").write_text(
+                        json.dumps(invalid), encoding="utf-8"
+                    )
+                    status = self.run_status(config_path, fixture_dir)
+                    self.assertEqual(status["nts"]["state"], "UNKNOWN")
+                    self.assertEqual(status["nts"]["sources"], 0)
 
     def test_network_fallback_and_inactive_pps(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -209,7 +320,7 @@ class StatusTests(unittest.TestCase):
                 config_to_env(load_config(PROJECT_ROOT, environ={})), encoding="utf-8"
             )
             status = self.run_status(config_path, fixture_dir)
-        self.assertEqual(status["chrony"]["selected_source"], "192.0.2.1")
+        self.assertEqual(status["chrony"]["selected_source"], "OTHER")
         self.assertEqual(status["pps"]["pulses"], "INACTIVE")
 
     def test_required_degraded_states(self) -> None:

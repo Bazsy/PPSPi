@@ -7,6 +7,7 @@ import argparse
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,92 @@ FIXTURE_FILES = {
     "chrony_service": "systemctl-chrony.txt",
     "gpsd_service": "systemctl-gpsd.txt",
 }
+DEFAULT_NTS_STATE = Path("/run/ppstime/nts-state.json")
+NTS_STATE_MAX_AGE_SECONDS = 5 * 60
+NTS_STATES = {"DISABLED", "AUTHENTICATED", "DEGRADED", "FAILED", "UNKNOWN"}
+
+
+def unknown_nts_state(*, enabled: bool) -> dict[str, Any]:
+    return {
+        "enabled": enabled,
+        "state": "UNKNOWN" if enabled else "DISABLED",
+        "sources": 0,
+        "authenticated_sources": 0,
+        "retrying_sources": 0,
+        "nak_sources": 0,
+    }
+
+
+def read_nts_state(
+    config: dict[str, str],
+    path: Path,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Read only the closed, identity-free NTS monitor schema."""
+
+    enabled = config["NTP_FALLBACK_MODE"] == "nts"
+    if not enabled:
+        return unknown_nts_state(enabled=False)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        expected = {
+            "schema_version",
+            "checked_utc",
+            "enabled",
+            "state",
+            "sources",
+            "authenticated_sources",
+            "retrying_sources",
+            "nak_sources",
+        }
+        if not isinstance(payload, dict) or set(payload) != expected:
+            raise ValueError("schema mismatch")
+        if type(payload["schema_version"]) is not int or payload["schema_version"] != 1:
+            raise ValueError("invalid schema version")
+        if payload["enabled"] is not True:
+            raise ValueError("state does not describe enabled NTS")
+        if payload["state"] not in NTS_STATES - {"DISABLED"}:
+            raise ValueError("invalid state")
+        for key in (
+            "sources",
+            "authenticated_sources",
+            "retrying_sources",
+            "nak_sources",
+        ):
+            if type(payload[key]) is not int or payload[key] < 0:
+                raise ValueError("invalid counter")
+        sources = payload["sources"]
+        authenticated = payload["authenticated_sources"]
+        retrying = payload["retrying_sources"]
+        nak = payload["nak_sources"]
+        if authenticated > sources or retrying > sources or nak > sources:
+            raise ValueError("inconsistent counters")
+        state = payload["state"]
+        if state == "AUTHENTICATED" and not (
+            sources > 0 and authenticated == sources and retrying == 0 and nak == 0
+        ):
+            raise ValueError("inconsistent authenticated state")
+        if state == "DEGRADED" and not (
+            sources > 0
+            and (authenticated < sources or retrying > 0 or nak > 0)
+        ):
+            raise ValueError("inconsistent degraded state")
+        if state == "FAILED" and authenticated != 0:
+            raise ValueError("inconsistent failed state")
+        if state == "UNKNOWN" and any((sources, authenticated, retrying, nak)):
+            raise ValueError("inconsistent unknown state")
+        if not isinstance(payload["checked_utc"], str):
+            raise ValueError("invalid timestamp")
+        checked = datetime.fromisoformat(payload["checked_utc"].replace("Z", "+00:00"))
+        if checked.tzinfo is None:
+            raise ValueError("timestamp has no timezone")
+        age = ((now or datetime.now(timezone.utc)) - checked.astimezone(timezone.utc)).total_seconds()
+        if age < -60 or age > NTS_STATE_MAX_AGE_SECONDS:
+            raise ValueError("state is stale")
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return unknown_nts_state(enabled=True)
+    return {key: payload[key] for key in expected if key not in {"schema_version", "checked_utc"}}
 
 
 def fixture_or_command(
@@ -98,6 +185,7 @@ def collect_status(config_path: Path, fixture_dir: Path | None = None) -> dict[s
     tracking = parse_key_value_output(tracking_result.stdout)
     sources = parse_chrony_sources(source_result.stdout)
     selected = next((source["name"] for source in sources if source["state"] == "*"), None)
+    selected_kind = selected if selected in {"GPS", "PPS"} else "OTHER" if selected else None
     gps = parse_gpsd_json(gps_result.stdout, device=config["GPS_DEVICE"])
     fixture_mode = fixture_dir is not None
     fixture_devices: dict[str, bool] = {}
@@ -136,8 +224,11 @@ def collect_status(config_path: Path, fixture_dir: Path | None = None) -> dict[s
         else fixture_devices.get("rtc_device", rtc_result.returncode == 0)
     )
 
+    nts_state_path = (
+        fixture_dir / "nts-state.json" if fixture_dir is not None else DEFAULT_NTS_STATE
+    )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "profile": config["PPSTIME_PROFILE"],
         "gps": {
             "device": config["GPS_DEVICE"],
@@ -160,11 +251,12 @@ def collect_status(config_path: Path, fixture_dir: Path | None = None) -> dict[s
         },
         "chrony": {
             "state": "SYNCHRONIZED" if chrony_synchronized else "NOT SYNCHRONIZED",
-            "selected_source": selected,
+            "selected_source": selected_kind,
             "stratum": int(tracking["Stratum"]) if tracking.get("Stratum", "").isdigit() else None,
             "system_offset_seconds": first_number(tracking.get("Last offset")),
             "root_dispersion_seconds": first_number(tracking.get("Root dispersion")),
         },
+        "nts": read_nts_state(config, nts_state_path),
         "ntp_clients": parse_chrony_clients(client_result.stdout)
         if client_result.returncode == 0
         else None,
@@ -190,6 +282,9 @@ def render_human(status: dict[str, Any]) -> str:
         ("Stratum", status["chrony"]["stratum"] if status["chrony"]["stratum"] else "N/A"),
         ("System offset", status["chrony"]["system_offset_seconds"] or "N/A"),
         ("Root dispersion", status["chrony"]["root_dispersion_seconds"] or "N/A"),
+        ("NTS state", status["nts"]["state"]),
+        ("NTS sources", status["nts"]["sources"]),
+        ("NTS authenticated", status["nts"]["authenticated_sources"]),
         ("NTP clients", status["ntp_clients"] if status["ntp_clients"] is not None else "N/A"),
     ]
     lines = ["PPSPi status", "------------", ""]

@@ -278,6 +278,20 @@ class DashboardTests(unittest.TestCase):
         with self.assertRaisesRegex(self.module.DashboardError, "range"):
             self.module.sanitize_health(payload, datetime.now(timezone.utc))
 
+    def test_sampler_accepts_sanitized_nts_summary_without_projecting_identity(self) -> None:
+        payload = json.loads(json.dumps(self.fixture))
+        payload["last_observation"]["summary"]["nts"] = {
+            "enabled": True,
+            "state": "AUTHENTICATED",
+            "sources": 2,
+            "authenticated_sources": 2,
+            "retrying_sources": 0,
+            "nak_sources": 0,
+        }
+        sample = self.module.sanitize_health(payload, datetime.now(timezone.utc))
+        self.assertNotIn("nts", sample)
+        self.assertNotIn("source.example.net", json.dumps(sample))
+
     def test_sqlite_history_is_bounded_and_readable_without_wal(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "dashboard.sqlite3"

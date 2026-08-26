@@ -3,11 +3,74 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
+
+from ppstime_core import (
+    ConfigError,
+    atomic_write,
+    parse_env_file,
+    run_command,
+    summarize_chrony_nts_authdata,
+    validate_config,
+)
+
+DEFAULT_CONFIG = Path("/etc/ppstime/ppstime.env")
+DEFAULT_NTS_STATE = Path("/run/ppstime/nts-state.json")
+
+
+def collect_nts_state(
+    config_path: Path = DEFAULT_CONFIG,
+    state_path: Path = DEFAULT_NTS_STATE,
+) -> None:
+    """Publish bounded NTS authentication state without source identities."""
+
+    config = parse_env_file(config_path)
+    validate_config(config)
+    enabled = config["NTP_FALLBACK_MODE"] == "nts"
+    summary: dict[str, int | str]
+    if enabled:
+        result = run_command(["chronyc", "-n", "authdata", "-a"], timeout=10)
+        sources_result = run_command(["chronyc", "-n", "sources", "-v"], timeout=10)
+        summary = (
+            summarize_chrony_nts_authdata(result.stdout, sources_result.stdout)
+            if result.returncode == 0 and sources_result.returncode == 0
+            else {
+                "state": "UNKNOWN",
+                "sources": 0,
+                "authenticated_sources": 0,
+                "retrying_sources": 0,
+                "nak_sources": 0,
+            }
+        )
+    else:
+        summary = {
+            "state": "DISABLED",
+            "sources": 0,
+            "authenticated_sources": 0,
+            "retrying_sources": 0,
+            "nak_sources": 0,
+        }
+    payload = {
+        "schema_version": 1,
+        "checked_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "enabled": enabled,
+        **summary,
+    }
+    atomic_write(
+        state_path,
+        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        mode=0o644,
+    )
 
 
 def main() -> int:
+    try:
+        collect_nts_state()
+    except (ConfigError, OSError):
+        print("PPSPi NTS warning: authentication state collection unavailable")
     try:
         result = subprocess.run(
             [str(Path(__file__).with_name("ppstime-health")), "--update"],

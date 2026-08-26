@@ -22,7 +22,7 @@ from typing import Any
 SCHEMA_VERSION = 3
 LEGACY_SCHEMA_VERSION = 1
 HOST_SCHEMA_VERSION = 2
-STATUS_SCHEMA_VERSION = 1
+STATUS_SCHEMA_VERSIONS = {1, 2}
 HOST_STATUS_SCHEMA_VERSION = 1
 CONFIRMATIONS = 2
 HOOK_TIMEOUT_SECONDS = 10
@@ -120,7 +120,7 @@ def require_string(mapping: dict[str, Any], key: str, context: str) -> str:
 def normalize_status(payload: Any) -> dict[str, Any]:
     status = require_mapping(payload, "status")
     schema_version = status.get("schema_version")
-    if type(schema_version) is not int or schema_version != STATUS_SCHEMA_VERSION:
+    if type(schema_version) is not int or schema_version not in STATUS_SCHEMA_VERSIONS:
         raise HealthError("unsupported ppstime-status schema")
     gps = require_mapping(status.get("gps"), "status.gps")
     pps = require_mapping(status.get("pps"), "status.pps")
@@ -159,6 +159,65 @@ def normalize_status(payload: Any) -> dict[str, Any]:
         if not math.isfinite(parsed) or not minimum <= parsed <= maximum:
             raise HealthError(f"status.chrony.{key} is outside its allowed range")
         timing_scalars[key] = parsed
+    if schema_version == 1:
+        nts_summary = {
+            "enabled": False,
+            "state": "DISABLED",
+            "sources": 0,
+            "authenticated_sources": 0,
+            "retrying_sources": 0,
+            "nak_sources": 0,
+        }
+    else:
+        nts = require_mapping(status.get("nts"), "status.nts")
+        if set(nts) != {
+            "enabled",
+            "state",
+            "sources",
+            "authenticated_sources",
+            "retrying_sources",
+            "nak_sources",
+        }:
+            raise HealthError("status.nts keys do not match schema")
+        if not isinstance(nts.get("enabled"), bool) or nts.get("state") not in {
+            "DISABLED", "AUTHENTICATED", "DEGRADED", "FAILED", "UNKNOWN"
+        }:
+            raise HealthError("status.nts state is invalid")
+        for key in (
+            "sources",
+            "authenticated_sources",
+            "retrying_sources",
+            "nak_sources",
+        ):
+            value = nts.get(key)
+            if type(value) is not int or value < 0:
+                raise HealthError(f"status.nts.{key} must be a non-negative integer")
+        sources = nts["sources"]
+        authenticated = nts["authenticated_sources"]
+        retrying = nts["retrying_sources"]
+        nak = nts["nak_sources"]
+        if authenticated > sources or retrying > sources or nak > sources:
+            raise HealthError("status.nts counters are inconsistent")
+        if nts["enabled"] is False and (
+            nts["state"] != "DISABLED" or any((sources, authenticated, retrying, nak))
+        ):
+            raise HealthError("status.nts disabled state is inconsistent")
+        if nts["enabled"] is True and nts["state"] == "DISABLED":
+            raise HealthError("status.nts enabled state is inconsistent")
+        if nts["state"] == "AUTHENTICATED" and not (
+            sources > 0 and authenticated == sources and retrying == 0 and nak == 0
+        ):
+            raise HealthError("status.nts authenticated state is inconsistent")
+        if nts["state"] == "DEGRADED" and not (
+            sources > 0
+            and (authenticated < sources or retrying > 0 or nak > 0)
+        ):
+            raise HealthError("status.nts degraded state is inconsistent")
+        if nts["state"] == "FAILED" and authenticated != 0:
+            raise HealthError("status.nts failed state is inconsistent")
+        if nts["state"] == "UNKNOWN" and any((sources, authenticated, retrying, nak)):
+            raise HealthError("status.nts unknown state is inconsistent")
+        nts_summary = dict(nts)
     return {
         "chrony_state": require_string(chrony, "state", "status.chrony"),
         "selected_source": selected_source_kind,
@@ -170,6 +229,7 @@ def normalize_status(payload: Any) -> dict[str, Any]:
         "pps_exists": pps_exists,
         "pps_pulses": require_string(pps, "pulses", "status.pps"),
         "rtc_status": require_string(rtc, "status", "status.rtc"),
+        "nts": nts_summary,
         **timing_scalars,
     }
 

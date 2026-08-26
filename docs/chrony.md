@@ -75,6 +75,54 @@ one second from another. The GPS lock provides that identity.
 The default is `pool.ntp.org`; regional or organizational pools can be selected
 through the profile. Public sources are clients of PPSPi, not LAN access rules.
 
+`NTP_FALLBACK_MODE=ntp` is the default and preserves ordinary unauthenticated
+NTP for simple, private, and captive deployments. Setting the mode to `nts`
+adds Chrony's `nts` option and persists NTS cookies in `/var/lib/chrony` to
+reduce TLS key-establishment traffic after restart. PPSPi accepts only the
+validated mode and hostname; arbitrary Chrony source options cannot be supplied
+through configuration.
+
+### Authenticated NTS fallback
+
+Enable NTS only with a service that explicitly supports Network Time Security.
+Set the hostname first so the intermediate configuration remains valid, then
+enable the mode and apply both values:
+
+```console
+sudo ppstime-config set NTP_FALLBACK_POOL time.example.net
+sudo ppstime-config set NTP_FALLBACK_MODE nts
+sudo ppstime-config apply
+```
+
+Replace `time.example.net` with the operator-approved NTS service. PPSPi does
+not select or endorse a public provider. Enabling NTS with the ordinary
+`pool.ntp.org` default is rejected because that name does not promise NTS.
+
+NTS key establishment uses TLS and the system CA store over TCP port 4460.
+Authenticated NTP measurements then use UDP port 123. DNS, both outbound ports,
+and a complete current CA store must work. TLS interception, captive portals,
+DNS redirection, or a firewall blocking TCP/4460 can leave NTS unavailable even
+when ordinary web browsing or NTP works.
+
+Certificate validation also needs a plausible system time before Chrony has a
+network or GNSS sample. PPSPi therefore permits NTS mode only when its RTC is
+enabled. The boot-time RTC restore establishes certificate time before Chrony
+starts. An absent, unpowered, corrupt, or never-synchronized RTC can still make
+NTS key establishment fail; repair that clock boundary instead of disabling
+certificate-time checks. PPSPi intentionally does not render Chrony's
+`nocerttimecheck` option.
+
+The hardened root healthcheck queries Chrony's privileged `authdata` command
+and immediately reduces it to aggregate counters. `ppstime-status` reports only
+`AUTHENTICATED`, `DEGRADED`, `FAILED`, or `UNKNOWN`, source counts, retrying
+counts, and NAK counts. It never publishes NTS hostnames or addresses. A state
+older than five minutes is `UNKNOWN` rather than trusted as current evidence.
+
+NTS authenticates the network source and received NTP packets. It does not
+authenticate civilian GNSS, prove that GNSS and NTS are independent, or establish
+traceable timing accuracy. Healthy PPS remains preferred through its shorter
+root distance; NTS is startup and outage fallback.
+
 Chrony can retain the last estimate from a stopped preferred refclock for a long
 time. PPSPi therefore sets `CHRONY_MAX_CLOCK_ERROR_PPM=200` and
 `CHRONY_MAX_DISTANCE=0.1`, while deliberately not marking PPS `prefer`. The
@@ -158,6 +206,20 @@ chronyc sources -v
 chronyc sourcestats -v
 chronyc clients
 ```
+
+With NTS enabled, root can additionally inspect the identity-bearing raw
+authentication report locally:
+
+```console
+sudo chronyc -n authdata -a
+ppstime-status --json
+```
+
+Do not post raw `authdata`, `sources`, or `ntpdata` output publicly without
+redacting source identities. A controlled acceptance test records healthy PPS,
+removes or shields the antenna, verifies `NETWORK_FALLBACK` with aggregate NTS
+state `AUTHENTICATED`, restores the antenna, and verifies automatic return to
+`HEALTHY_PPS` without Chrony/GPSD restarts.
 
 Healthy settled source symbols normally include `#* PPS`, `#- GPS`, and one or
 more reachable network sources. The exact network symbols vary as Chrony forms

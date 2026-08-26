@@ -118,8 +118,10 @@ TIMING_SUMMARY_KEYS = frozenset(
         "rtc_status",
         "system_offset_seconds",
         "root_dispersion_seconds",
+        "nts",
     }
 )
+LEGACY_TIMING_SUMMARY_KEYS = TIMING_SUMMARY_KEYS - {"nts"}
 HOST_SUMMARY_KEYS = frozenset(
     {"filesystems", "temperature_celsius", "throttling", "root_filesystem_errors", "updates"}
 )
@@ -175,13 +177,71 @@ def require_mapping(value: Any, name: str, keys: frozenset[str] | None = None) -
     return value
 
 
-def optional_mapping(value: Any, name: str, keys: frozenset[str]) -> dict[str, Any] | None:
+def optional_mapping(
+    value: Any,
+    name: str,
+    keys: frozenset[str],
+    legacy_keys: frozenset[str] | None = None,
+) -> dict[str, Any] | None:
     if value is None:
         return None
     observation = require_mapping(value, name)
     if set(observation) != {"raw_state", "reasons", "summary"}:
         raise DashboardError(f"{name} keys do not match the health schema")
-    return require_mapping(observation["summary"], f"{name}.summary", keys)
+    summary = require_mapping(observation["summary"], f"{name}.summary")
+    if set(summary) != keys and (legacy_keys is None or set(summary) != legacy_keys):
+        raise DashboardError(f"{name}.summary keys do not match the dashboard schema")
+    return summary
+
+
+def validate_nts_summary(value: Any) -> None:
+    nts = require_mapping(
+        value,
+        "timing.nts",
+        frozenset(
+            {
+                "enabled",
+                "state",
+                "sources",
+                "authenticated_sources",
+                "retrying_sources",
+                "nak_sources",
+            }
+        ),
+    )
+    boolean_value(nts["enabled"], "timing.nts.enabled")
+    enum_value(
+        nts["state"],
+        "timing.nts.state",
+        frozenset({"DISABLED", "AUTHENTICATED", "DEGRADED", "FAILED", "UNKNOWN"}),
+    )
+    for key in ("sources", "authenticated_sources", "retrying_sources", "nak_sources"):
+        bounded_number(nts[key], f"timing.nts.{key}", 0, 1024, integer=True)
+    sources = nts["sources"]
+    authenticated = nts["authenticated_sources"]
+    retrying = nts["retrying_sources"]
+    nak = nts["nak_sources"]
+    if authenticated > sources or retrying > sources or nak > sources:
+        raise DashboardError("timing.nts counters are inconsistent")
+    if nts["enabled"] is False and (
+        nts["state"] != "DISABLED" or any((sources, authenticated, retrying, nak))
+    ):
+        raise DashboardError("timing.nts disabled state is inconsistent")
+    if nts["enabled"] is True and nts["state"] == "DISABLED":
+        raise DashboardError("timing.nts enabled state is inconsistent")
+    if nts["state"] == "AUTHENTICATED" and not (
+        sources > 0 and authenticated == sources and retrying == 0 and nak == 0
+    ):
+        raise DashboardError("timing.nts authenticated state is inconsistent")
+    if nts["state"] == "DEGRADED" and not (
+        sources > 0
+        and (authenticated < sources or retrying > 0 or nak > 0)
+    ):
+        raise DashboardError("timing.nts degraded state is inconsistent")
+    if nts["state"] == "FAILED" and authenticated != 0:
+        raise DashboardError("timing.nts failed state is inconsistent")
+    if nts["state"] == "UNKNOWN" and any((sources, authenticated, retrying, nak)):
+        raise DashboardError("timing.nts unknown state is inconsistent")
 
 
 def bounded_number(
@@ -267,6 +327,7 @@ def sanitize_health(payload: Any, sampled_at: datetime) -> dict[str, Any]:
             health.get("last_observation"),
             "health.last_observation",
             TIMING_SUMMARY_KEYS,
+            LEGACY_TIMING_SUMMARY_KEYS,
         )
         if timing_available is True
         else None
@@ -314,6 +375,8 @@ def sanitize_health(payload: Any, sampled_at: datetime) -> dict[str, Any]:
     pps_pulses = None
     rtc_available = None
     if timing is not None:
+        if "nts" in timing:
+            validate_nts_summary(timing["nts"])
         selected_source = enum_value(
             timing.get("selected_source"),
             "timing.selected_source",

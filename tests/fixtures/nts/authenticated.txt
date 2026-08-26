@@ -1,0 +1,4 @@
+Name/IP address             Mode KeyID Type KLen Last Atmp  NAK Cook CLen
+==============================================================================
+192.0.2.10                  NTS     1   15  256  10m    0    0    8  100
+secret-time.example.net     NTS     2   15  256   1m    0    0    8  100

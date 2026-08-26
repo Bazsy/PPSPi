@@ -1,0 +1,3 @@
+Name/IP address             Mode KeyID Type KLen Last Atmp  NAK Cook CLen
+==============================================================================
+ID#1234567890               NTS     0    0    0    -    2    0    0    0
